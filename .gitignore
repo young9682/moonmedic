@@ -1,0 +1,15 @@
+# MoonBit
+target/
+.mooncakes/
+dist/
+*.core
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+*.local.yaml
