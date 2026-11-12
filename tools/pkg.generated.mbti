@@ -1,7 +1,21 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "young9682/moonmedic/tools"
 
+import {
+  "cxh04/kubemoon/object",
+}
+
 // Values
+pub fn first_container_name(@object.DynamicObject) -> String?
+
+pub async fn get_events(K8sTarget, pod_name~ : String) -> Result[Array[String], String]
+
+pub async fn get_logs(K8sTarget, pod_name~ : String, tail? : Int32, container? : String) -> Result[String, String]
+
+pub async fn get_object(K8sTarget, group~ : String, version~ : String, resource~ : String, name~ : String) -> Result[@object.DynamicObject, String]
+
+pub async fn get_pod(K8sTarget, name~ : String) -> Result[@object.DynamicObject, String]
+
 pub async fn list_pod_names(K8sTarget) -> Result[Array[String], String]
 
 // Errors

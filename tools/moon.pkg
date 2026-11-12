@@ -4,6 +4,8 @@ import {
   "cxh04/kubemoon/httptransport",
   "cxh04/kubemoon/object",
   "cxh04/kubemoon/resource",
+  "cxh04/kubemoon/transport",
+  "moonbitlang/core/json",
 }
 
 supported_targets = "native"

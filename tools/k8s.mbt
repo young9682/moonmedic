@@ -32,11 +32,14 @@ fn build_config(target : K8sTarget) -> @config.ClientConfig {
   let server = target.server
   match (target.token, target.ca_file) {
     (Some(token), Some(ca)) =>
-      @config.ClientConfig::ClientConfig(server~, bearer_token=token, ca_file=ca)
+      @config.ClientConfig::ClientConfig(
+        server~,
+        bearer_token=token,
+        ca_file=ca,
+      )
     (Some(token), None) =>
       @config.ClientConfig::ClientConfig(server~, bearer_token=token)
-    (None, Some(ca)) =>
-      @config.ClientConfig::ClientConfig(server~, ca_file=ca)
+    (None, Some(ca)) => @config.ClientConfig::ClientConfig(server~, ca_file=ca)
     (None, None) => @config.ClientConfig::ClientConfig(server~)
   }
 }
@@ -44,7 +47,9 @@ fn build_config(target : K8sTarget) -> @config.ClientConfig {
 ///|
 /// List pod names in the target namespace. Issues a single GET on
 /// /api/v1/namespaces/{ns}/pods and decodes the collection snapshot.
-pub async fn list_pod_names(target : K8sTarget) -> Result[Array[String], String] {
+pub async fn list_pod_names(
+  target : K8sTarget,
+) -> Result[Array[String], String] {
   let config = build_config(target)
   let client = @client.DynamicClient::DynamicClient(config)
   let transport = @httptransport.HttpTransport::connect(config)

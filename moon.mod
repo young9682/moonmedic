@@ -8,13 +8,7 @@ repository = "https://github.com/young9682/moonmedic"
 
 license = "Apache-2.0"
 
-keywords = [
-  "kubernetes",
-  "k8s",
-  "agent",
-  "diagnostics",
-  "observability",
-]
+keywords = [ "kubernetes", "k8s", "agent", "diagnostics", "observability" ]
 
 preferred_target = "native"
 

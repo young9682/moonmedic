@@ -1,0 +1,53 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "young9682/moonmedic/rules"
+
+import {
+  "moonbitlang/core/json",
+}
+
+// Values
+pub fn run_all(PodFacts) -> Array[Finding]
+
+// Errors
+
+// Types and methods
+pub(all) struct Diagnosis {
+  ns : String
+  pod : String
+  phase : String
+  findings : Array[Finding]
+  notes : Array[String]
+}
+
+pub(all) struct Finding {
+  rule_id : String
+  title : String
+  detail : String
+  confidence : Double
+  evidence : Array[String]
+}
+
+pub struct PodFacts {
+  ns : String
+  pod : String
+  phase : String
+  restarts : Int32
+  waiting_reason : String?
+  last_term_reason : String?
+  last_term_exit : Int32?
+  mem_limit : String?
+  events : Array[String]
+  logs_tail : String?
+}
+pub fn PodFacts::empty(events~ : Array[String], logs? : String) -> Self
+pub fn PodFacts::from_pod(@json.Json, events~ : Array[String], logs? : String) -> Self
+
+pub struct Rule {
+  id : String
+  title : String
+  check : (PodFacts) -> Finding?
+}
+
+// Type aliases
+
+// Traits
