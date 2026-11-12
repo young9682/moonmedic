@@ -1,0 +1,9 @@
+import {
+  "young9682/moonmedic/tools",
+  "moonbitlang/async",
+  "moonbitlang/core/env",
+}
+
+supported_targets = "native"
+
+pkgtype(kind: "executable")

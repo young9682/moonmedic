@@ -1,0 +1,20 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "young9682/moonmedic/tools"
+
+// Values
+pub async fn list_pod_names(K8sTarget) -> Result[Array[String], String]
+
+// Errors
+
+// Types and methods
+pub struct K8sTarget {
+  server : String
+  token : String?
+  ca_file : String?
+  ns : String
+}
+pub fn K8sTarget::from_parts(server~ : String, token~ : String?, ca_file~ : String?, ns~ : String) -> Self
+
+// Type aliases
+
+// Traits

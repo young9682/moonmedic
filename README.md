@@ -47,9 +47,23 @@ moonmedic: 正在检查……
 
 ## 开发
 
+依赖:MoonBit 工具链([moon](https://www.moonbitlang.com/download/))、kubectl + 有效 kubeconfig。
+
+**W1 已达成:kubemoon 只读连通**(MoonBit 客户端成功列出集群 pods)。
+
 ```bash
-# TODO: 首个里程碑后补充
+# 终端 1:启动本地代理(kubectl 负责认证;Rancher 类 server 路径必须加 --append-server-path)
+kubectl proxy --port=8001 --append-server-path
+
+# 终端 2:运行 PoC(只读列出 kube-system 的 Pod 名)
+moon run cmd/main
 ```
+
+环境变量可切换目标:`MOONMEDIC_SERVER`(默认 `http://127.0.0.1:8001`)、
+`MOONMEDIC_TOKEN`、`MOONMEDIC_CA_FILE`(直连 API Server 时)、
+`MOONMEDIC_NAMESPACE`(默认 `kube-system`)。
+
+> PoC 全程只发 GET 请求;后续所有诊断工具都将限制在只读白名单内。
 
 ## 许可证
 
