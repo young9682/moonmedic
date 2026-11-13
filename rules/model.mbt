@@ -16,4 +16,7 @@ pub(all) struct Diagnosis {
   phase : String
   findings : Array[Finding]
   notes : Array[String]
+  /// Optional LLM-written conclusion. None = LLM absent or failed; the
+  /// report then falls back to the deterministic rule-engine conclusion.
+  summary : String?
 }

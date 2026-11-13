@@ -17,6 +17,7 @@ pub(all) struct Diagnosis {
   phase : String
   findings : Array[Finding]
   notes : Array[String]
+  summary : String?
 }
 
 pub(all) struct Finding {

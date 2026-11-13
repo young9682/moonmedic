@@ -1,0 +1,28 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "young9682/moonmedic/llm"
+
+import {
+  "young9682/moonmedic/rules",
+}
+
+// Values
+pub fn build_summary_prompt(@rules.PodFacts, Array[@rules.Finding]) -> String
+
+pub async fn chat_complete(LlmConfig, user_prompt~ : String) -> Result[String, String]
+
+pub async fn summarize(LlmConfig, @rules.PodFacts, Array[@rules.Finding]) -> Result[String, String]
+
+// Errors
+
+// Types and methods
+pub struct LlmConfig {
+  base_url : String
+  api_key : String?
+  model : String
+  system_prompt : String
+}
+pub fn LlmConfig::try_from_parts(base_url~ : String, api_key? : String, model~ : String, system_prompt? : String) -> Result[Self, String]
+
+// Type aliases
+
+// Traits

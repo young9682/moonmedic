@@ -1,4 +1,5 @@
 import {
+  "young9682/moonmedic/llm",
   "young9682/moonmedic/medic",
   "young9682/moonmedic/report",
   "young9682/moonmedic/tools",
