@@ -46,4 +46,4 @@ moonmedic 是一个用 MoonBit 编写的 Kubernetes 排障 Agent:面对故障 Po
 
 https://github.com/young9682/moonmedic
 
-main 分支当前含 14 个有效 commits(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → 规则扩展 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
+main 分支已含 15+ 个有效 commits(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → 规则扩展 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
