@@ -2,6 +2,7 @@ import {
   "young9682/moonmedic/llm",
   "young9682/moonmedic/rules",
   "young9682/moonmedic/tools",
+  "moonbitlang/core/env",
 }
 
 supported_targets = "native"

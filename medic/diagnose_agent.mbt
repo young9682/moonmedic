@@ -26,6 +26,7 @@ pub async fn diagnose_agent(
     Json::object(user_msg),
   ]
   let tools = tool_defs()
+  let debug = @env.get_env_var("MOONMEDIC_DEBUG") is Some("1")
   let mut summary : String? = None
   let mut converged = false
   let mut step = 0
@@ -36,7 +37,15 @@ pub async fn diagnose_agent(
         notes.push("Agent 循环失败(第 \{step} 步):\{message}")
         break
       }
-      Ok(turn) =>
+      Ok(turn) => {
+        if debug {
+          let action = if turn.tool_calls.is_empty() {
+            "最终结论(\{turn.content.length()} 字符)"
+          } else {
+            "调用 " + turn.tool_calls.map(fn(c) { c.name }).join(", ")
+          }
+          println("[moonmedic][agent] step \{step}: \{action}")
+        }
         if turn.tool_calls.is_empty() {
           if !turn.content.is_empty() {
             summary = Some(turn.content)
@@ -46,9 +55,15 @@ pub async fn diagnose_agent(
           messages.push(build_assistant_msg(turn.content, turn.tool_calls))
           for call in turn.tool_calls {
             let result = execute_tool(target, pod_name~, call)
+            if debug {
+              println(
+                "[moonmedic][agent]   ↳ \{call.name} → \{result.length()} 字符",
+              )
+            }
             messages.push(build_tool_msg(call.id, result))
           }
         }
+      }
     }
   }
   if !converged && summary is None {
