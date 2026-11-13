@@ -115,6 +115,10 @@ moonmedic/
 
 ## 7. 周计划
 
+> **2026-11-13 更新**:W1–W4 全部按期交付并通过真集群端到端验证
+> (agent 工具循环采用 mizchi/llm `run_json_chat_loop` 的设计适配异步版;
+> CI 三步 fmt --check / check / test 已在 main 上常绿)。
+
 | 周 | 产出 | 验收线 |
 |---|---|---|
 | W1 | moon 骨架入库;kubemoon 连通 PoC:读 kind 集群 pod 列表 | `moon run` 能打印本机集群 pods |
