@@ -40,10 +40,12 @@ moonmedic 是一个用 MoonBit 编写的 Kubernetes 排障 Agent:面对故障 Po
 
 ## 7. 参考项目说明
 
-不适用(原创)。生态依赖与参考:集群访问基于 [cxh04/kubemoon](https://mooncakes.io/docs/cxh04/kubemoon)(Apache-2.0);异步 HTTP 基于 moonbitlang/async;agent 循环的线格式与消息簿记参考 [mizchi/llm](https://github.com/mizchi/llm)(MIT)的 `run_json_chat_loop` 设计并适配异步版,已在 README 注明来源。
+生态依赖与参考:集群访问基于 [cxh04/kubemoon](https://mooncakes.io/docs/cxh04/kubemoon)(Apache-2.0);异步 HTTP 基于 moonbitlang/async;agent 循环的线格式与消息簿记参考 [mizchi/llm](https://github.com/mizchi/llm)(MIT)的 `run_json_chat_loop` 设计并适配异步版,已在 README 注明来源。
 
 ## 8. GitHub 仓库链接
 
 https://github.com/young9682/moonmedic
 
-main 分支已含 15+ 个有效 commits(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → 规则扩展 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
+main 分支已含 15+ 个有效 commits(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → 规则扩展 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。  
+
+### 本项目由young86开发，最终解释权归于young86

@@ -37,6 +37,7 @@ pub struct PodFacts {
   last_term_reason : String?
   last_term_exit : Int32?
   mem_limit : String?
+  image : String?
   events : Array[String]
   logs_tail : String?
 }
