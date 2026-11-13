@@ -49,8 +49,8 @@ moonmedic: 正在检查……
 
 - [x] `CrashLoopBackOff` / `OOMKilled` —— 退出码、终止原因、资源限制关联分析
 - [x] `Pending` —— 事件与调度失败消息排查
-- [ ] 镜像拉取失败 —— `ImagePullBackOff`、Secret 缺失、仓库可达性
-- [ ] 探针失败 —— liveness/readiness 事件与端点状态
+- [x] 镜像拉取失败 —— 镜像名/tag 无法解析(`image_pull_tag`)与凭据/Secret 问题(`image_pull_secret`)
+- [x] 探针失败 —— kubelet Unhealthy / probe failed 事件(`probe_fail`,端点级状态待下赛季)
 - [ ] 资源水位 —— 结合 Prometheus 指标看容量趋势
 
 ## 路线图
@@ -102,7 +102,7 @@ moon run cmd/main -- kube-system <pod-name>
 ```bash
 moon fmt --check   # 格式
 moon check         # 类型检查
-moon test          # 15 个单元测试(规则引擎 / 提示词 / 线格式解析)
+moon test          # 18 个单元测试(规则引擎 / 提示词 / 线格式解析 / agent 辅助层)
 ```
 
 CI(`.github/workflows/ci.yml`,Ubuntu)在每次 push 与 PR 上运行以上三步。

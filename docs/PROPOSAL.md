@@ -10,7 +10,7 @@ moonmedic 是一个用 MoonBit 编写的 Kubernetes 排障 Agent:把集群里的
 
 - 提供 Pod 诊断工具集:get_pod(容器状态机/重启数/资源限制)、get_events(按对象过滤、条数上限)、get_logs(自动定位容器、tail 裁剪)与通用 get_object(node/quota 等随规则扩展);
 
-- 提供表驱动诊断知识库,首发 OOMKilled、CrashLoopBackOff(exit 1)、Pending/FailedScheduling 三类规则,新增场景仅需增加表项与对应单测;
+- 提供表驱动诊断知识库,首发 OOMKilled、CrashLoopBackOff(exit 1)、Pending/FailedScheduling、镜像拉取(tag/凭据)、探针失败六条规则,新增场景仅需增加表项与对应单测;
 
 - 提供 LLM 归纳层:兼容 OpenAI 接口(DeepSeek/GLM/Kimi/vLLM 均可配置),采用接地式提示词(事实 + 规则初筛 + 事件 + 日志尾,强制"只依据证据、不足需明示"),基于 moonbitlang/async http 实现原生客户端,无 C stub 依赖;
 
