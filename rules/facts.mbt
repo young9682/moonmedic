@@ -11,6 +11,7 @@ pub struct PodFacts {
   last_term_reason : String?
   last_term_exit : Int32?
   mem_limit : String?
+  image : String?
   events : Array[String]
   logs_tail : String?
 }
@@ -28,6 +29,7 @@ pub fn PodFacts::empty(events~ : Array[String], logs? : String) -> PodFacts {
     last_term_reason: None,
     last_term_exit: None,
     mem_limit: None,
+    image: None,
     events,
     logs_tail: logs,
   }
@@ -50,6 +52,7 @@ pub fn PodFacts::from_pod(
   let mut term_reason : String? = None
   let mut term_exit : Int32? = None
   let mut mem_limit : String? = None
+  let mut image : String? = None
   if pod_raw is Object(fields) {
     if fields.get("metadata") is Some(Object(meta)) {
       ns = json_sf(meta, "namespace").unwrap_or("")
@@ -83,10 +86,12 @@ pub fn PodFacts::from_pod(
     if fields.get("spec") is Some(Object(spec)) &&
       spec.get("containers") is Some(Array(containers)) &&
       containers.length() > 0 &&
-      containers[0] is Object(container) &&
-      container.get("resources") is Some(Object(res_fields)) &&
-      res_fields.get("limits") is Some(Object(limits)) {
-      mem_limit = json_sf(limits, "memory")
+      containers[0] is Object(container) {
+      image = json_sf(container, "image")
+      if container.get("resources") is Some(Object(res_fields)) &&
+        res_fields.get("limits") is Some(Object(limits)) {
+        mem_limit = json_sf(limits, "memory")
+      }
     }
   }
   {
@@ -98,6 +103,7 @@ pub fn PodFacts::from_pod(
     last_term_reason: term_reason,
     last_term_exit: term_exit,
     mem_limit,
+    image,
     events,
     logs_tail: logs,
   }
