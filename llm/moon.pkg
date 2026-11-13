@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/async/http",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/json",
+  "young9682/moonmedic/rules",
+}
+
+supported_targets = "native"

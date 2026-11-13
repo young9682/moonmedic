@@ -2,12 +2,13 @@
 package "young9682/moonmedic/medic"
 
 import {
+  "young9682/moonmedic/llm",
   "young9682/moonmedic/rules",
   "young9682/moonmedic/tools",
 }
 
 // Values
-pub async fn diagnose_pod(@tools.K8sTarget, pod_name~ : String, logs_tail? : Int32) -> @rules.Diagnosis
+pub async fn diagnose_pod(@tools.K8sTarget, pod_name~ : String, logs_tail? : Int32, llm_config? : @llm.LlmConfig) -> @rules.Diagnosis
 
 // Errors
 

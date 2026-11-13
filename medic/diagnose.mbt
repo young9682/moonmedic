@@ -1,10 +1,13 @@
 ///|
-/// The W2 diagnosis pipeline: gather facts with read-only tools, then run
-/// the rule table. No LLM yet (W3) - this path must stay useful on its own.
+/// The diagnosis pipeline: gather facts with read-only tools, run the rule
+/// table, and (when an LLM is configured) add a natural-language summary.
+/// Evidence failures degrade to report notes; LLM failure degrades to the
+/// rule-only conclusion. The rule path must stay useful on its own.
 pub async fn diagnose_pod(
   target : @tools.K8sTarget,
   pod_name~ : String,
   logs_tail~ : Int32 = 100,
+  llm_config? : @llm.LlmConfig,
 ) -> @rules.Diagnosis {
   let pod = @tools.get_pod(target, name=pod_name)
   let notes = []
@@ -41,5 +44,23 @@ pub async fn diagnose_pod(
     }
   }
   let findings = @rules.run_all(facts)
-  { ns: target.ns, pod: pod_name, phase: facts.phase, findings, notes, }
+  let summary = match llm_config {
+    Some(config) =>
+      match @llm.summarize(config, facts, findings) {
+        Ok(text) => Some(text)
+        Err(message) => {
+          notes.push("LLM 归纳失败:\{message}")
+          None
+        }
+      }
+    None => None
+  }
+  {
+    ns: target.ns,
+    pod: pod_name,
+    phase: facts.phase,
+    findings,
+    notes,
+    summary,
+  }
 }
