@@ -14,6 +14,8 @@ jobs:
         run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
       - name: Add moon to PATH
         run: echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: moon update (refresh registry index)
+        run: moon update
       - name: moon fmt --check
         run: moon fmt --check
       - name: moon check
