@@ -59,6 +59,26 @@ pub async fn chat_complete(
   user_prompt~ : String,
 ) -> Result[String, String] {
   let body = "{\"model\":\"\{config.model}\",\"messages\":[{\"role\":\"system\",\"content\":\"\{json_escape(config.system_prompt)}\"},{\"role\":\"user\",\"content\":\"\{json_escape(user_prompt)}\"}],\"stream\":false,\"temperature\":0.2}"
+  let (code, text) = match send_chat(config, body) {
+    Ok(pair) => pair
+    Err(message) => return Err(message)
+  }
+  if code != 200 {
+    if text.length() <= 400 {
+      return Err("HTTP \{code}: \{text}")
+    }
+    return Err("HTTP \{code} (body \{text.length()} bytes)")
+  }
+  extract_content(text)
+}
+
+///|
+/// Send one chat-completions request body and return (status, body text).
+/// Shared by the plain and the tool-calling entry points.
+async fn send_chat(
+  config : LlmConfig,
+  body : String,
+) -> Result[(Int32, String), String] {
   let headers : Map[@http.CaseInsensitiveString, String] = Map([
     (@http.CaseInsensitiveString("Content-Type"), "application/json"),
   ])
@@ -88,17 +108,10 @@ pub async fn chat_complete(
   } catch {
     _ => Err("LLM 请求失败(网络错误或 URL 无效)")
   }
-  let (code, text) = match outcome {
-    Ok(pair) => pair
-    Err(message) => return Err(message)
+  match outcome {
+    Ok(pair) => Ok(pair)
+    Err(message) => Err(message)
   }
-  if code != 200 {
-    if text.length() <= 400 {
-      return Err("HTTP \{code}: \{text}")
-    }
-    return Err("HTTP \{code} (body \{text.length()} bytes)")
-  }
-  extract_content(text)
 }
 
 ///|

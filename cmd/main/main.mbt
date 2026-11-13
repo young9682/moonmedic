@@ -28,7 +28,11 @@ async fn main {
     let ns = args[1]
     let pod = args[2]
     let target = @tools.K8sTarget::from_parts(server~, token~, ca_file~, ns~)
-    let diagnosis = @medic.diagnose_pod(target, pod_name=pod, llm_config?)
+    let diagnosis = match llm_config {
+      // LLM configured: the agent loop decides which evidence to gather.
+      Some(config) => @medic.diagnose_agent(target, pod_name=pod, config)
+      None => @medic.diagnose_pod(target, pod_name=pod)
+    }
     println(@report.render_markdown(diagnosis))
     return
   }
@@ -36,7 +40,10 @@ async fn main {
     // Diagnose with the default namespace when only a pod name is given.
     let ns = @env.get_env_var("MOONMEDIC_NAMESPACE").unwrap_or("default")
     let target = @tools.K8sTarget::from_parts(server~, token~, ca_file~, ns~)
-    let diagnosis = @medic.diagnose_pod(target, pod_name=args[1], llm_config?)
+    let diagnosis = match llm_config {
+      Some(config) => @medic.diagnose_agent(target, pod_name=args[1], config)
+      None => @medic.diagnose_pod(target, pod_name=args[1])
+    }
     println(@report.render_markdown(diagnosis))
     return
   }

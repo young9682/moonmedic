@@ -8,6 +8,8 @@ import {
 }
 
 // Values
+pub async fn diagnose_agent(@tools.K8sTarget, pod_name~ : String, @llm.LlmConfig, max_steps? : Int32, logs_tail? : Int32) -> @rules.Diagnosis
+
 pub async fn diagnose_pod(@tools.K8sTarget, pod_name~ : String, logs_tail? : Int32, llm_config? : @llm.LlmConfig) -> @rules.Diagnosis
 
 // Errors

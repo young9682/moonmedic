@@ -2,6 +2,7 @@
 package "young9682/moonmedic/llm"
 
 import {
+  "moonbitlang/core/json",
   "young9682/moonmedic/rules",
 }
 
@@ -10,11 +11,18 @@ pub fn build_summary_prompt(@rules.PodFacts, Array[@rules.Finding]) -> String
 
 pub async fn chat_complete(LlmConfig, user_prompt~ : String) -> Result[String, String]
 
+pub async fn chat_with_tools(LlmConfig, messages~ : Array[@json.Json], tools~ : Array[@json.Json]) -> Result[AgentTurn, String]
+
 pub async fn summarize(LlmConfig, @rules.PodFacts, Array[@rules.Finding]) -> Result[String, String]
 
 // Errors
 
 // Types and methods
+pub(all) struct AgentTurn {
+  content : String
+  tool_calls : Array[ToolCall]
+}
+
 pub struct LlmConfig {
   base_url : String
   api_key : String?
@@ -22,6 +30,12 @@ pub struct LlmConfig {
   system_prompt : String
 }
 pub fn LlmConfig::try_from_parts(base_url~ : String, api_key? : String, model~ : String, system_prompt? : String) -> Result[Self, String]
+
+pub(all) struct ToolCall {
+  id : String
+  name : String
+  arguments : @json.Json
+}
 
 // Type aliases
 

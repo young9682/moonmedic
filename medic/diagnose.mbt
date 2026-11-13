@@ -1,18 +1,14 @@
 ///|
-/// The diagnosis pipeline: gather facts with read-only tools, run the rule
-/// table, and (when an LLM is configured) add a natural-language summary.
-/// Evidence failures degrade to report notes; LLM failure degrades to the
-/// rule-only conclusion. The rule path must stay useful on its own.
-pub async fn diagnose_pod(
+/// Shared evidence gathering for all diagnosis paths: pod object, related
+/// events and first-container logs. Failures degrade to notes so the
+/// pipeline never blocks on a single source.
+async fn gather_facts(
   target : @tools.K8sTarget,
   pod_name~ : String,
-  logs_tail~ : Int32 = 100,
-  llm_config? : @llm.LlmConfig,
-) -> @rules.Diagnosis {
+  logs_tail~ : Int32,
+) -> (@rules.PodFacts, Array[String]) {
   let pod = @tools.get_pod(target, name=pod_name)
   let notes = []
-  // Events and logs are best-effort evidence: failing to read them must not
-  // abort the diagnosis, it becomes a note in the report.
   let events = match @tools.get_events(target, pod_name~) {
     Ok(lines) => lines
     Err(message) => {
@@ -43,6 +39,19 @@ pub async fn diagnose_pod(
       @rules.PodFacts::empty(events~, logs?)
     }
   }
+  (facts, notes)
+}
+
+///|
+/// The W2/W3 single-shot path: rule findings plus (optionally) one buffered
+/// LLM summary. Kept as the non-agent fallback.
+pub async fn diagnose_pod(
+  target : @tools.K8sTarget,
+  pod_name~ : String,
+  logs_tail~ : Int32 = 100,
+  llm_config? : @llm.LlmConfig,
+) -> @rules.Diagnosis {
+  let (facts, notes) = gather_facts(target, pod_name~, logs_tail~)
   let findings = @rules.run_all(facts)
   let summary = match llm_config {
     Some(config) =>
