@@ -98,6 +98,13 @@ let rule_table : Array[Rule] = [
     title: "Pending / FailedScheduling",
     check: rule_sched_insufficient,
   },
+  { id: "image_pull_tag", title: "ImagePull tag", check: rule_image_pull_tag, },
+  {
+    id: "image_pull_secret",
+    title: "ImagePull auth",
+    check: rule_image_pull_secret,
+  },
+  { id: "probe_fail", title: "probe failure", check: rule_probe_fail, },
 ]
 
 ///|
@@ -111,4 +118,95 @@ pub fn run_all(facts : PodFacts) -> Array[Finding] {
     }
   }
   findings
+}
+
+///|
+/// Gate shared by the two image-pull rules: the container must be stuck in
+/// an image-pull wait state.
+fn image_pull_pending(facts : PodFacts) -> Bool {
+  facts.waiting_reason is Some("ImagePullBackOff") ||
+  facts.waiting_reason is Some("ErrImagePull")
+}
+
+///|
+/// Rule: the image reference itself cannot be resolved (bad name/tag).
+fn rule_image_pull_tag(facts : PodFacts) -> Finding? {
+  if !image_pull_pending(facts) {
+    return None
+  }
+  let mut matched : String? = None
+  for line in facts.events {
+    if line.contains("Failed to pull image") &&
+      (line.contains("not found") || line.contains("manifest unknown")) {
+      matched = Some(line)
+      break
+    }
+  }
+  let line = match matched {
+    Some(line) => line
+    None => return None
+  }
+  let evidence = [line]
+  match facts.image {
+    Some(image) => evidence.push("spec.containers[0].image = \{image}")
+    None => ()
+  }
+  Some({
+    rule_id: "image_pull_tag",
+    title: "镜像名或 tag 无法解析",
+    detail: "仓库返回 manifest unknown / not found:检查镜像名拼写与 tag 是否真实存在;若为私有仓库镜像被公开引用也会报此错。",
+    confidence: 0.85,
+    evidence,
+  })
+}
+
+///|
+/// Rule: the registry rejected the pull (credentials/authorization).
+fn rule_image_pull_secret(facts : PodFacts) -> Finding? {
+  if !image_pull_pending(facts) {
+    return None
+  }
+  let mut matched : String? = None
+  for line in facts.events {
+    if line.contains("denied") ||
+      line.contains("authentication required") ||
+      line.contains("authorization") {
+      matched = Some(line)
+      break
+    }
+  }
+  let line = match matched {
+    Some(line) => line
+    None => return None
+  }
+  Some({
+    rule_id: "image_pull_secret",
+    title: "镜像仓库拒绝拉取(凭据问题)",
+    detail: "仓库返回 denied / authentication required:私有仓库需要 imagePullSecrets。检查 ServiceAccount 是否绑定了正确的 docker-registry secret,以及凭据是否过期。",
+    confidence: 0.8,
+    evidence: [line],
+  })
+}
+
+///|
+/// Rule: liveness/readiness probe failures reported by the kubelet.
+fn rule_probe_fail(facts : PodFacts) -> Finding? {
+  let mut matched : String? = None
+  for line in facts.events {
+    if line.contains("probe failed") || line.contains("Unhealthy") {
+      matched = Some(line)
+      break
+    }
+  }
+  let line = match matched {
+    Some(line) => line
+    None => return None
+  }
+  Some({
+    rule_id: "probe_fail",
+    title: "探针失败(kubelet 报告 Unhealthy)",
+    detail: "常见原因:探针路径/端口配置错误、应用启动慢于探针初检(建议配置 startupProbe)、依赖服务不可达。结合探针类型与返回码定位。",
+    confidence: 0.75,
+    evidence: [line],
+  })
 }
