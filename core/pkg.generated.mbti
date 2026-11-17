@@ -1,0 +1,23 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "young9682/moonmedic/core"
+
+import {
+  "young9682/moonmedic/rules",
+  "young9682/moonmedic/snapshot",
+}
+
+// Values
+pub fn diagnose(@snapshot.ClusterSnapshot) -> SnapshotDiagnosis
+
+// Errors
+
+// Types and methods
+pub(all) struct SnapshotDiagnosis {
+  diagnosis : @rules.Diagnosis
+  pod_facts : @rules.PodFacts?
+  workload_facts : @rules.WorkloadFacts?
+}
+
+// Type aliases
+
+// Traits
