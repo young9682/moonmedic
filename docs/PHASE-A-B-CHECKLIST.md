@@ -104,17 +104,17 @@
 
 ### B1 评测语料
 
-- [ ] `eval/kind-config.yaml`;
+- [x] 评测环境:使用真实 RKE2 集群隔离 namespace 替代 kind(`eval/scripts/inject.sh`);
 - [ ] 8 个场景 manifest:
-  - [ ] `quota-zero-pods`(hard pods=0,Deployment 无法创建任何 Pod);
-  - [ ] `limitrange-reject`;
-  - [ ] `oomkilled`;
-  - [ ] `pending-insufficient`;
-  - [ ] `image-pull-tag`;
-  - [ ] `image-pull-secret`;
+  - [x] `quota-zero-pods`(hard pods=0,Deployment 无法创建任何 Pod)—— 真集群注入 + 采集;
+  - [x] `limitrange-reject` —— 真集群注入 + 采集;
+  - [ ] `oomkilled`(运行时路径,fixture 与真机诊断覆盖);
+  - [ ] `pending-insufficient`(单测覆盖);
+  - [ ] `image-pull-tag`(单测覆盖,真集群注入待续);
+  - [ ] `image-pull-secret`(单测覆盖);
   - [ ] `probe-fail`;
   - [ ] `crash-exit-1`;
-- [ ] 每个场景一份 `ClusterSnapshot` 录制与期望诊断。
+- [x] E01–E05 每个场景一份真实 `ClusterSnapshot` 录制与期望诊断(eval/fixtures + eval/expected,离线回放 5/5)。
 
 ### B2 Harness
 
