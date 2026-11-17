@@ -97,6 +97,13 @@ pub(all) struct QuotaFact {
 /// Facts for a workload-level diagnosis. This is how moonmedic answers "the
 /// Pod does not exist": walk Deployment -> ReplicaSet -> Pod count, then
 /// correlate namespace events and ResourceQuota usage.
+
+///|
+/// Re-exported for readability: per-source collection status from the
+/// snapshot IR (Available / Empty / Unavailable(reason) / Truncated(seen)).
+pub type ListStatus = @snapshot.ListStatus
+
+///|
 pub(all) struct WorkloadFacts {
   ns : String
   kind : String
@@ -110,6 +117,8 @@ pub(all) struct WorkloadFacts {
   quotas : Array[QuotaFact]
   pod_count : Int32
   pod_missing : Bool
+  pods_status : ListStatus
+  events_status : ListStatus
 }
 
 ///|
@@ -121,6 +130,8 @@ pub fn WorkloadFacts::empty(
   name~ : String,
   events~ : Array[EventFact],
   quotas~ : Array[QuotaFact],
+  pods_status? : ListStatus,
+  events_status? : ListStatus,
 ) -> WorkloadFacts {
   {
     ns,
@@ -135,5 +146,13 @@ pub fn WorkloadFacts::empty(
     quotas,
     pod_count: 0,
     pod_missing: false,
+    pods_status: match pods_status {
+      Some(status) => status
+      None => Empty
+    },
+    events_status: match events_status {
+      Some(status) => status
+      None => Empty
+    },
   }
 }

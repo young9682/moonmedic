@@ -178,6 +178,8 @@ fn workload_fixture_facts(
   quota_raw : Json,
   events : Array[@rules.EventFact],
   pod_count~ : Int32 = 0,
+  pods_status~ : ListStatus = @snapshot.Available,
+  events_status~ : ListStatus = @snapshot.Available,
 ) -> @rules.WorkloadFacts raise {
   let quotas = match @rules.QuotaFact::from_json(quota_raw) {
     Some(quota) => [quota]
@@ -189,6 +191,8 @@ fn workload_fixture_facts(
     events~,
     quotas~,
     pod_count~,
+    pods_status~,
+    events_status~,
   )
 }
 
@@ -426,4 +430,50 @@ test "quota-mentioning ReplicaFailure still corroborates on saturated quota" {
   let facts = quota_fixture_facts([])
   let ids = finding_rule_ids(facts)
   inspect(list_contains(ids, "quota_exceeded"), content="true")
+}
+
+///|
+test "unavailable Pods list suppresses no-pods claim, yields insufficient_evidence" {
+  let events = [
+    event(
+      "FailedCreate",
+      "pods \"payments-api-7d9f6b-x2k9l\" is forbidden: exceeded quota: compute",
+      kind="ReplicaSet",
+      name="payments-api-7d9f6b",
+      count=3,
+    ),
+  ]
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_QUOTA),
+    @json.parse(QUOTA_COMPUTE),
+    events,
+    pods_status=@snapshot.Unavailable("RBAC: pods list forbidden"),
+  )
+  let ids = finding_rule_ids(facts)
+  // The quota root cause still stands on its own (event + status.used).
+  inspect(list_contains(ids, "quota_exceeded"), content="true")
+  // But the pod-count claim is gone, replaced by an explicit downgrade.
+  inspect(list_contains(ids, "workload_no_pods"), content="false")
+  inspect(list_contains(ids, "insufficient_evidence"), content="true")
+}
+
+///|
+test "truncated Pods list is not evidence of zero Pods" {
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_PLAIN_FAILURE),
+    @json.parse(QUOTA_COMPUTE_UNSATURATED),
+    [],
+    pods_status=@snapshot.Truncated(37),
+  )
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "workload_no_pods"), content="false")
+  inspect(list_contains(ids, "insufficient_evidence"), content="true")
+}
+
+///|
+test "empty-but-usable Pods list still supports the missing-pod claim" {
+  let facts = quota_fixture_facts([])
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "workload_no_pods"), content="true")
+  inspect(list_contains(ids, "insufficient_evidence"), content="false")
 }

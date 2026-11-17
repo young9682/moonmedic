@@ -284,6 +284,8 @@ pub fn WorkloadFacts::from_deployment(
   events~ : Array[EventFact],
   quotas~ : Array[QuotaFact],
   pod_count~ : Int32,
+  pods_status~ : ListStatus,
+  events_status~ : ListStatus,
 ) -> WorkloadFacts {
   let mut ns = ""
   let mut name = ""
@@ -354,6 +356,8 @@ pub fn WorkloadFacts::from_deployment(
     quotas,
     pod_count,
     pod_missing: pod_count == 0 && desired > 0,
+    pods_status,
+    events_status,
   }
 }
 

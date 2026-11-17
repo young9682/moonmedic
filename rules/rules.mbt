@@ -341,7 +341,9 @@ fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
   // A saturated quota alone is a warning, not a proven rejection. Require a
   // controller failure or the missing-Pod symptom before calling it a root
   // cause; otherwise `quota_at_capacity` owns the finding.
-  if !corroborated && !facts.pod_missing {
+  // The pod_missing corroboration relies on a trustworthy Pod count: an
+  // unavailable/truncated Pods list must not upgrade this finding.
+  if !corroborated && (!facts.pod_missing || !facts.pods_status.is_usable()) {
     return None
   }
   let confidence = if corroborated && measured {
@@ -454,6 +456,10 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
   if !facts.pod_missing {
     return None
   }
+  // "Zero Pods" is only a fact when the Pods list itself is trustworthy.
+  if !facts.pods_status.is_usable() {
+    return None
+  }
   let failed : Array[EventFact] = []
   for event in facts.events {
     if event.is_failed_create() {
@@ -468,7 +474,9 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
   for event in failed {
     evidence.push(event.text())
   }
-  let cause_text = if failed.length() > 0 {
+  let cause_text = if !facts.events_status.is_usable() {
+    "事件列表不可用,无法从事件侧排除或确认拒绝原因。"
+  } else if failed.length() > 0 {
     "这不是容器启动失败,而是创建请求在准入阶段被拒绝。"
   } else {
     "未观察到 FailedCreate 事件;请检查控制器状态、RBAC 或准入 Webhook。"
@@ -564,6 +572,33 @@ fn rule_deployment_stalled(facts : WorkloadFacts) -> Finding? {
 /// The workload knowledge base. Rules form a causal chain:
 /// quota/limit (root cause) -> ReplicaSet FailedCreate (mechanism) ->
 /// no Pods (symptom).
+
+///|
+/// Rule: a source that the pod-count conclusions depend on could not be
+/// collected (or was truncated). This downgrades the diagnosis to
+/// "insufficient evidence" instead of letting "the API said no" read as
+/// "the cluster has none".
+fn rule_insufficient_evidence(facts : WorkloadFacts) -> Finding? {
+  let reasons : Array[String] = []
+  if !facts.pods_status.is_usable() {
+    reasons.push("Pods 列表: \{facts.pods_status.label()}")
+  }
+  if !facts.events_status.is_usable() {
+    reasons.push("Events 列表: \{facts.events_status.label()}")
+  }
+  if reasons.is_empty() {
+    return None
+  }
+  Some({
+    rule_id: "insufficient_evidence",
+    title: "采集不完整,诊断降级为部分证据",
+    detail: "以下数据源不可用或被截断,依赖它们的结论已降级或不输出;请修复采集权限、放大分页上限后重试。",
+    confidence: 0.2,
+    evidence: reasons,
+  })
+}
+
+///|
 let workload_rule_table : Array[WorkloadRule] = [
   {
     id: "quota_exceeded",
@@ -589,6 +624,11 @@ let workload_rule_table : Array[WorkloadRule] = [
     id: "workload_no_pods",
     title: "Workload has no Pods",
     check: rule_workload_no_pods,
+  },
+  {
+    id: "insufficient_evidence",
+    title: "Insufficient evidence",
+    check: rule_insufficient_evidence,
   },
   {
     id: "deployment_stalled",
