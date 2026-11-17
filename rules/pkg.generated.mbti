@@ -3,6 +3,7 @@ package "young9682/moonmedic/rules"
 
 import {
   "moonbitlang/core/json",
+  "young9682/moonmedic/snapshot",
 }
 
 // Values
@@ -120,9 +121,11 @@ pub(all) struct WorkloadFacts {
   quotas : Array[QuotaFact]
   pod_count : Int32
   pod_missing : Bool
+  pods_status : @snapshot.ListStatus
+  events_status : @snapshot.ListStatus
 }
-pub fn WorkloadFacts::empty(ns~ : String, kind~ : String, name~ : String, events~ : Array[EventFact], quotas~ : Array[QuotaFact]) -> Self
-pub fn WorkloadFacts::from_deployment(@json.Json, Array[@json.Json], events~ : Array[EventFact], quotas~ : Array[QuotaFact], pod_count~ : Int32) -> Self
+pub fn WorkloadFacts::empty(ns~ : String, kind~ : String, name~ : String, events~ : Array[EventFact], quotas~ : Array[QuotaFact], pods_status? : @snapshot.ListStatus, events_status? : @snapshot.ListStatus) -> Self
+pub fn WorkloadFacts::from_deployment(@json.Json, Array[@json.Json], events~ : Array[EventFact], quotas~ : Array[QuotaFact], pod_count~ : Int32, pods_status~ : @snapshot.ListStatus, events_status~ : @snapshot.ListStatus) -> Self
 
 pub struct WorkloadRule {
   id : String
@@ -131,5 +134,6 @@ pub struct WorkloadRule {
 }
 
 // Type aliases
+pub using @snapshot {type ListStatus}
 
 // Traits

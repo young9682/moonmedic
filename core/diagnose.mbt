@@ -73,6 +73,8 @@ fn diagnose_workload(
         events=scoped_events,
         quotas~,
         pod_count~,
+        pods_status=snapshot.pods_status,
+        events_status=snapshot.events_status,
       )
     None =>
       @rules.WorkloadFacts::empty(
@@ -81,6 +83,8 @@ fn diagnose_workload(
         name=snapshot.target_name,
         events=scoped_events,
         quotas~,
+        pods_status=snapshot.pods_status,
+        events_status=snapshot.events_status,
       )
   }
   let findings = @rules.run_all_workload(facts)

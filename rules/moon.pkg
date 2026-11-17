@@ -1,7 +1,5 @@
 import {
   "moonbitlang/core/string",
-}
-
-import {
   "moonbitlang/core/json",
-} for "test"
+  "young9682/moonmedic/snapshot",
+}

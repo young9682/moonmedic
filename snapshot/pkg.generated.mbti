@@ -2,6 +2,7 @@
 package "young9682/moonmedic/snapshot"
 
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/json",
 }
 
@@ -21,6 +22,11 @@ pub(all) struct ClusterSnapshot {
   events : Array[@json.Json]
   quotas : Array[@json.Json]
   limit_ranges : Array[@json.Json]
+  replicasets_status : ListStatus
+  pods_status : ListStatus
+  events_status : ListStatus
+  quotas_status : ListStatus
+  limit_ranges_status : ListStatus
   logs : String?
   notes : Array[String]
 }
@@ -28,6 +34,17 @@ pub fn ClusterSnapshot::empty(ns~ : String, target_kind~ : String, target_name~ 
 pub fn ClusterSnapshot::from_json(@json.Json) -> Result[Self, String]
 pub fn ClusterSnapshot::note(Self, String) -> Unit
 pub fn ClusterSnapshot::to_json(Self) -> @json.Json
+
+#derive(@debug.Debug)
+pub(all) enum ListStatus {
+  Available
+  Empty
+  Unavailable(String)
+  Truncated(Int32)
+}
+pub fn ListStatus::is_usable(Self) -> Bool
+pub fn ListStatus::label(Self) -> String
+pub impl Show for ListStatus
 
 // Type aliases
 
