@@ -12,7 +12,7 @@ moonmedic 是一个用 MoonBit 编写的 Kubernetes 只读故障诊断引擎。�
 
 目标架构中,核心引擎不依赖 kubemoon——kubemoon 仅作为可替换的快照适配器;也不依赖 LLM——LLM 仅作为可选叙述层。所有结论绑定 API 路径、字段与时间戳,可被单测、快照回放和故障注入评测。现有 W1–W4 实现为 MoonBit(native 后端,零 C stub),全程仅发 GET 请求,已在真实 RKE2 集群上完成端到端验证;本轮新增部分沿用同一技术栈。
 
-当前状态:W1–W4(骨架、规则引擎、LLM 归纳、Agent 循环)与 Phase A(核心与适配器分离、准入失败取证、`--deployment`/`--json`)已交付,38 个测试通过;Phase B 的可回放评测集正在进行,详见 §5.7、§5.9。
+当前状态:W1–W4(骨架、规则引擎、LLM 归纳、Agent 循环)与 Phase A(核心与适配器分离、准入失败取证、`--deployment`/`--json`)已交付,51 个测试通过;Phase B 评测集已落地——在真实 RKE2 集群上以隔离 namespace 注入 5 类故障(E01 配额零 Pod / E02 部分副本 / E03 LimitRange 拒绝 / E04 外来工作负载隔离 / E05 证据不完整),kubectl 采集为 ClusterSnapshot 快照并全部通过离线 golden 回放。
 
 ## 3. 项目方向与通用性说明
 
