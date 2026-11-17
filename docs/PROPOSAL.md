@@ -1,6 +1,10 @@
 # moonmedic 项目申报书(2026 MoonBit 黑客松 · 十一月赛)
 
-> 本版为评审驳回后的修订版:核心定位由“LLM 排障 Agent”调整为“确定性故障证据引擎 + 可回放基准”,并补入配额超限导致 Pod 未创建时的取证链。W1–W4 与 Phase A(快照 IR、对象图、配额/LimitRange 准入重建、`--deployment`/`--json`)已交付;Phase B(kind 评测集)进行中,见 §5.7、§5.9。
+> 本版为评审驳回后的第二轮修订版。
+>
+> **对首轮评审意见的回应**(详见 §9):
+> ① “扣除已有客户端与通用 Agent 后,核心只是关键词匹配与模板建议” → 定位调整为确定性证据引擎,并新增结构化 Evidence 引用、诊断分层与数据完整性语义(Day 1–2);
+> ② “未说明 Pod 未创建场景如何取证” → §4 场景一给出 7 步 API 取证链,并以真实 RKE2 集群注入 5 类故障(E01–E05)采集证据、全部通过离线 golden 回放(Day 3–4)。
 
 ## 1. 项目名称
 
@@ -12,7 +16,7 @@ moonmedic 是一个用 MoonBit 编写的 Kubernetes 只读故障诊断引擎。�
 
 目标架构中,核心引擎不依赖 kubemoon——kubemoon 仅作为可替换的快照适配器;也不依赖 LLM——LLM 仅作为可选叙述层。所有结论绑定 API 路径、字段与时间戳,可被单测、快照回放和故障注入评测。现有 W1–W4 实现为 MoonBit(native 后端,零 C stub),全程仅发 GET 请求,已在真实 RKE2 集群上完成端到端验证;本轮新增部分沿用同一技术栈。
 
-当前状态:W1–W4(骨架、规则引擎、LLM 归纳、Agent 循环)与 Phase A(核心与适配器分离、准入失败取证、`--deployment`/`--json`)已交付,51 个测试通过;Phase B 评测集已落地——在真实 RKE2 集群上以隔离 namespace 注入 5 类故障(E01 配额零 Pod / E02 部分副本 / E03 LimitRange 拒绝 / E04 外来工作负载隔离 / E05 证据不完整),kubectl 采集为 ClusterSnapshot 快照并全部通过离线 golden 回放。
+当前状态(2026-11-18):W1–W4 与 Phase A/B 全部交付——**51 个测试全过;5 类真实 RKE2 集群注入故障(E01–E05)的 ClusterSnapshot 采集与离线 golden 回放 5/5**;Day-1~5 新增:UID 归属隔离修复、配额归因收窄、ListStatus 数据完整性语义、结构化 Evidence 引用与诊断分层(root_cause/mechanism/symptom/insufficient)。
 
 ## 3. 项目方向与通用性说明
 
@@ -134,12 +138,12 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
 
 | 能力 | W1–W4 已交付 | Phase A 已交付 | Phase B 目标 |
 |---|---|---|---|
-| Pod 运行时诊断 | 6 条规则、18 个单测、真机 e2e | 保留并扩展至 38 个测试 | 补 kind 回归 |
+| Pod 运行时诊断 | 6 条规则、18 个单测、真机 e2e | 扩展至 51 个测试(含结构化 Evidence) | 基准与更多场景 |
 | 对象图 / 准入失败 | 无 | 快照 IR、Deployment→RS→Pod、配额数值重建 + LimitRange 识别 | 补 StatefulSet/DaemonSet、完整 LimitRange 回放 |
 | CLI | 列 Pod、诊断 Pod | `--deployment`、`--json`、404 自动切换 | golden/评测脚本集成 |
-| 评测 | 单测 + CI | core 离线单测 + CI 依赖边界 | 8 个 kind 场景、录制回放、基准 |
-| 测试规模 | 18 | 38 | 40+ |
-| 规则规模 | 6 条 Pod 规则 | 12+(Pod 6 + 工作负载/准入 6) | 保持并补数据 |
+| 评测 | 单测 + CI | core 离线单测 + CI 依赖边界 | **已落地:真实 RKE2 注入 5 场景 + golden 回放 5/5**;录制回放与基准为后续 |
+| 测试规模 | 18 | 38 → **51** | 50+(以有效覆盖为准) |
+| 规则规模 | 6 条 Pod 规则 | **13 条**(Pod 6 + 工作负载/准入 6 + insufficient_evidence),全部绑定结构化 Evidence | 保持并补数据 |
 
 **5.8 开发与验证闭环**
 
@@ -165,10 +169,8 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
 
 **5.9 未完成事项与范围变化**
 
-- Phase A(核心分离 + 准入路径 + CLI)已落地,38 个测试通过;
-- Phase B(Harness + 录制回放 + 基准)尚未开始;
-- Phase A 未包含 LLM 证据编号校验与 Agent 工作负载工具扩展,二者归入 Phase B/C;
-- Phase C(StatefulSet/DaemonSet、节点容量、上一容器日志、日志签名、提示注入防护)列为可选,若时间不足将明确标注未完成;
+- Phase A(核心分离 + 准入路径 + CLI)已落地;**Phase B 评测集已落地**(真实 RKE2 注入 E01–E05 + golden 回放,见 §5.7);
+- 尚未完成、如实标注:kind/CI 化注入(本轮以真实集群替代)、LLM 证据编号校验、CPU/内存配额回放、LimitRange 完整约束回放、StatefulSet/DaemonSet(Phase C);
 - 不把 kubemoon 的能力算作本项目原创;不把 LLM 的叙述能力算作诊断证据。
 
 ## 6. 项目性质
@@ -198,6 +200,29 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
 
 https://github.com/young9682/moonmedic
 
-main 分支已含 20+ 个有效 commits(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → 规则扩展 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
+main 分支已含 **59 个有效 commits**(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → Phase A 准入诊断 → Day1–5 正确性/数据完整性/结构化 Evidence/评测集 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
 
 ### 本项目由 young86 开发,最终解释权归于 young86
+
+## 9. 对首轮评审意见的回应
+
+**意见一:“扣除已有客户端与通用 Agent 能力,核心仍主要是状态/关键词匹配及模板建议,工程深度不足。”**
+
+回应:已按“确定性证据引擎”重构并补足四层工程深度,且逐项有测试与真集群证据:
+
+1. **对象图而非关键词**:Pod 计数与事件归属按 `ownerReferences.uid` 严格过滤(跨工作负载干扰回归测试:外来 3 个健康 Pod 不污染目标计数,E04 真集群验证);
+2. **数值约束回放而非模板**:K8s Quantity 算术(10/500m/64Mi/4Gi/2G/1e3)+ `status.used/hard` 饱和判定 + 配额差额反事实计算("还差 2 个;hard 提高到 ≥12");
+3. **数据完整性语义**:ListStatus(Available/Empty/Unavailable/Truncated)——"API 读取失败"不再等价于"空列表";不可用时 `workload_no_pods` 与配额佐证路径自动降级(e05 验证);
+4. **结构化 Evidence + 诊断分层**:13 条规则全部引用 `{对象, 字段路径, 观测值}` 级证据;JSON 契约含 layer(root_cause/mechanism/symptom/insufficient),可被 CI 断言(eval/scripts/assert.py);
+5. **负向测试**:forbidden-only、纯 FailedCreate、非 quota ReplicaFailure × 不饱和配额 → 均不触发配额根因(关键词匹配的误报路径已被测试封锁)。
+
+**意见二:“未说明 Pod 未创建场景如何取得诊断证据。”**
+
+回应:§4 场景一给出 7 步只读取证链(逐条列出 API 路径与过滤条件),并已用**真实集群注入**端到端验证:
+
+- E01(配额 pods=0):kubectl 采集到 ReplicaSet `ReplicaFailure=True`、`FailedCreate` 事件("exceeded quota: zero-pods, requested: pods=1, used: pods=0, limited: pods=0")与 `status.used/hard`,诊断输出 quota_exceeded(root_cause)+ workload_no_pods(现象)+ deployment_stalled,全部绑定 evidence_refs;
+- E02(配额 1/期望 2):部分副本场景,缺失副本计算改为 `desired - pod_count`;
+- e03(LimitRange):真实事件措辞为 "maximum memory usage per Container is 64Mi"(不含 "LimitRange" 字样),limitrange_reject 正确命中且 quota_exceeded 正确缺席——这正是"数值与语义归因"优于纯关键词匹配的实证;
+- E04/E05:归属隔离与证据不完整降级,均在真集群采集的快照上回放验证。
+
+评测快照、期望诊断与断言脚本随仓库提供(eval/),可离线复现。
