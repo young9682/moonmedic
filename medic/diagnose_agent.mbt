@@ -73,7 +73,8 @@ pub async fn diagnose_agent(
   }
   {
     ns: target.ns,
-    pod: pod_name,
+    target: pod_name,
+    target_kind: "Pod",
     phase: facts.phase,
     findings,
     notes,

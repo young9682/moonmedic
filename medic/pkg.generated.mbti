@@ -12,6 +12,10 @@ pub async fn diagnose_agent(@tools.K8sTarget, pod_name~ : String, @llm.LlmConfig
 
 pub async fn diagnose_pod(@tools.K8sTarget, pod_name~ : String, logs_tail? : Int32, llm_config? : @llm.LlmConfig) -> @rules.Diagnosis
 
+pub async fn diagnose_target(@tools.K8sTarget, name~ : String, llm_config? : @llm.LlmConfig) -> @rules.Diagnosis
+
+pub async fn diagnose_workload(@tools.K8sTarget, name~ : String, llm_config? : @llm.LlmConfig) -> @rules.Diagnosis
+
 // Errors
 
 // Types and methods

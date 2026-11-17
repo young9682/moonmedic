@@ -1,7 +1,15 @@
 ///|
 test "build_summary_prompt includes facts, findings and events" {
   let facts = @rules.PodFacts::empty(events=[
-    "FailedScheduling: 0/6 nodes are available: insufficient memory.",
+    {
+      reason: "FailedScheduling",
+      message: "0/6 nodes are available: insufficient memory.",
+      event_type: "Warning",
+      kind: "Pod",
+      name: "worker-5f8a",
+      count: 2,
+      last_seen: Some("2026-11-16T10:00:00Z"),
+    },
   ])
   let findings = [
     @rules.Finding::{
@@ -25,6 +33,34 @@ test "build_summary_prompt trims long log tails to 2000 chars" {
   let prompt = build_summary_prompt(facts, [])
   inspect(prompt.length() < 5000, content="true")
   inspect(prompt.contains("## 日志尾部"), content="true")
+}
+
+///|
+test "build_workload_prompt includes quota numbers and FailedCreate" {
+  let facts = @rules.WorkloadFacts::empty(
+    ns="prod",
+    kind="Deployment",
+    name="payments-api",
+    events=[
+      {
+        reason: "FailedCreate",
+        message: "pods is forbidden: exceeded quota: compute",
+        event_type: "Warning",
+        kind: "ReplicaSet",
+        name: "payments-api-7d9f6b",
+        count: 3,
+        last_seen: Some("2026-11-16T10:00:00Z"),
+      },
+    ],
+    quotas=[
+      { name: "compute", hard: [("pods", "10")], used: [("pods", "10")], },
+    ],
+  )
+  let prompt = @llm.build_workload_prompt(facts, [])
+  inspect(prompt.contains("payments-api"), content="true")
+  inspect(prompt.contains("ResourceQuota"), content="true")
+  inspect(prompt.contains("used=10"), content="true")
+  inspect(prompt.contains("FailedCreate"), content="true")
 }
 
 ///|

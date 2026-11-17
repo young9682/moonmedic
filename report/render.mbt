@@ -5,7 +5,12 @@ pub fn render_markdown(d : @rules.Diagnosis) -> String {
   let out = []
   out.push("# moonmedic 诊断报告")
   out.push("")
-  out.push("- Pod: `\{d.ns}/\{d.pod}`")
+  let target_label = if d.target_kind.is_empty() {
+    "Pod"
+  } else {
+    d.target_kind
+  }
+  out.push("- \{target_label}: `\{d.ns}/\{d.target}`")
   out.push("- Phase: `\{d.phase}`")
   out.push("")
   // LLM conclusion comes first when available: it is the human-readable
@@ -23,7 +28,7 @@ pub fn render_markdown(d : @rules.Diagnosis) -> String {
         out.push("## 结论")
         out.push("")
         out.push(
-          "未命中已知规则。Pod 状态本身未呈现可自动判定的故障特征,建议结合事件与日志人工确认。",
+          "未命中已知规则。对象状态本身未呈现可自动判定的故障特征,建议结合事件、配额与日志人工确认。",
         )
         out.push("")
       }
@@ -61,4 +66,41 @@ pub fn render_markdown(d : @rules.Diagnosis) -> String {
     "由 moonmedic 生成 · 只读诊断 · \{mode} · 建议仅供参考",
   )
   out.join("\n")
+}
+
+///|
+/// Machine-readable diagnosis for eval harnesses. The shape is stable:
+/// target identity, findings with rule ids and evidence, notes and the
+/// optional LLM summary.
+pub fn render_json(d : @rules.Diagnosis) -> String {
+  let root : Map[String, Json] = Map([])
+  root["ns"] = Json::string(d.ns)
+  root["target"] = Json::string(d.target)
+  root["target_kind"] = Json::string(d.target_kind)
+  root["phase"] = Json::string(d.phase)
+  let findings : Array[Json] = []
+  for finding in d.findings {
+    let item : Map[String, Json] = Map([])
+    item["rule_id"] = Json::string(finding.rule_id)
+    item["title"] = Json::string(finding.title)
+    item["detail"] = Json::string(finding.detail)
+    item["confidence"] = Json::number(finding.confidence)
+    let evidence : Array[Json] = []
+    for line in finding.evidence {
+      evidence.push(Json::string(line))
+    }
+    item["evidence"] = Json::array(evidence)
+    findings.push(Json::object(item))
+  }
+  root["findings"] = Json::array(findings)
+  let notes : Array[Json] = []
+  for note in d.notes {
+    notes.push(Json::string(note))
+  }
+  root["notes"] = Json::array(notes)
+  root["summary"] = match d.summary {
+    Some(text) => Json::string(text)
+    None => Json::null()
+  }
+  Json::object(root).stringify()
 }

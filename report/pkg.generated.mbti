@@ -6,6 +6,8 @@ import {
 }
 
 // Values
+pub fn render_json(@rules.Diagnosis) -> String
+
 pub fn render_markdown(@rules.Diagnosis) -> String
 
 // Errors
