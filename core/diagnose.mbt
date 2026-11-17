@@ -47,9 +47,14 @@ fn diagnose_workload(
   events : Array[@rules.EventFact],
   quotas : Array[@rules.QuotaFact],
 ) -> SnapshotDiagnosis {
+  let deployment_uid = match snapshot.deployment {
+    Some(raw) => @rules.object_uid(raw)
+    None => None
+  }
   let scoped_events = events_for_workload(
     events,
     snapshot.target_name,
+    deployment_uid,
     snapshot.replicasets,
   )
   let pod_count = count_owned_pods(snapshot.replicasets, snapshot.pods)
@@ -78,7 +83,7 @@ fn diagnose_workload(
       "未读取到 Deployment 对象,结论仅基于事件与配额证据",
     )
   }
-  if snapshot.replicasets.length() == 0 {
+  if facts.replicasets.length() == 0 {
     notes.push(
       "未发现归属该 Deployment 的 ReplicaSet,无法确认控制器是否尝试创建 Pod",
     )
@@ -195,14 +200,19 @@ fn events_for_pod(
 fn events_for_workload(
   events : Array[@rules.EventFact],
   deployment_name : String,
+  deployment_uid : String?,
   replicasets : Array[Json],
 ) -> Array[@rules.EventFact] {
   let names : Array[String] = [deployment_name]
-  for raw in replicasets {
-    if raw is Object(fields) &&
-      fields.get("metadata") is Some(Object(meta)) &&
-      meta.get("name") is Some(String(name)) {
-      names.push(name)
+  if deployment_uid is Some(uid) {
+    for raw in replicasets {
+      if @rules.owned_by_uid(raw, uid) {
+        if raw is Object(fields) &&
+          fields.get("metadata") is Some(Object(meta)) &&
+          meta.get("name") is Some(String(name)) {
+          names.push(name)
+        }
+      }
     }
   }
   let out : Array[@rules.EventFact] = []
