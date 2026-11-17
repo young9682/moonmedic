@@ -139,3 +139,31 @@ test "Deployment without uid marks ReplicaSet scoping as degraded" {
     .any(fn(note : String) { note.contains("无法按归属过滤") })
   inspect(degraded, content="true")
 }
+
+///|
+/// Offline fixture: the Pods list was collected with an RBAC failure, so the
+/// snapshot marks it Unavailable instead of pretending the namespace has no
+/// Pods. The workload diagnosis must downgrade accordingly.
+const WORKLOAD_SNAPSHOT_PODS_UNAVAILABLE = "{\"ns\":\"prod\",\"target_kind\":\"Deployment\",\"target_name\":\"payments-api\",\"deployment\":{\"metadata\":{\"name\":\"payments-api\",\"namespace\":\"prod\",\"uid\":\"dep-1\"},\"spec\":{\"replicas\":2},\"status\":{\"readyReplicas\":0,\"availableReplicas\":0}},\"replicasets\":[{\"metadata\":{\"name\":\"payments-api-7d9f6b\",\"namespace\":\"prod\",\"uid\":\"rs-1\",\"ownerReferences\":[{\"uid\":\"dep-1\",\"kind\":\"Deployment\",\"name\":\"payments-api\"}]},\"spec\":{\"replicas\":2},\"status\":{\"readyReplicas\":0,\"conditions\":[{\"type\":\"ReplicaFailure\",\"status\":\"True\",\"reason\":\"FailedCreate\",\"message\":\"pods is forbidden: exceeded quota: compute\"}]}}],\"pods\":[],\"events\":[],\"quotas\":[],\"limit_ranges\":[],\"data_status\":{\"replicasets\":\"available\",\"pods\":{\"state\":\"unavailable\",\"reason\":\"RBAC: pods list forbidden\"},\"events\":\"available\",\"quotas\":\"available\",\"limit_ranges\":\"available\"},\"notes\":[]}"
+
+///|
+test "unavailable Pods list downgrades the workload diagnosis" {
+  let snapshot = @snapshot.ClusterSnapshot::from_json(
+    @json.parse(WORKLOAD_SNAPSHOT_PODS_UNAVAILABLE),
+  ).unwrap()
+  let result = @core.diagnose(snapshot)
+  match result.workload_facts {
+    Some(facts) =>
+      match facts.pods_status {
+        Unavailable(reason) =>
+          inspect(reason, content="RBAC: pods list forbidden")
+        other => inspect(other, content="expected Unavailable")
+      }
+    None => inspect("missing workload facts", content="unexpected")
+  }
+  let ids = finding_ids(result.diagnosis.findings)
+  inspect(list_contains(ids, "workload_no_pods"), content="false")
+  inspect(list_contains(ids, "insufficient_evidence"), content="true")
+  // The quota root cause survives on its own evidence (event + status.used).
+  inspect(list_contains(ids, "quota_exceeded"), content="true")
+}
