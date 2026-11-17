@@ -1,0 +1,5 @@
+{
+  "expect_rule_ids": ["limitrange_reject", "workload_no_pods"],
+  "forbid_rule_ids": ["quota_exceeded"],
+  "evidence_contains": ["LimitRange"]
+}

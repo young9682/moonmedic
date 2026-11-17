@@ -1,0 +1,5 @@
+{
+  "expect_rule_ids": ["quota_exceeded", "workload_no_pods", "replicaset_create_failed"],
+  "forbid_rule_ids": ["insufficient_evidence", "limitrange_reject"],
+  "evidence_contains": ["exceeded quota"]
+}
