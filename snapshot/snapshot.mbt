@@ -11,7 +11,7 @@ pub(all) enum ListStatus {
 }
 
 ///|
-pub impl Show for ListStatus with output(self, logger) {
+pub impl Show for ListStatus with fn output(self, logger) {
   logger.write_string(self.label())
 }
 
