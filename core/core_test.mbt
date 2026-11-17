@@ -100,3 +100,42 @@ test "unsupported target kind degrades with a note" {
   let notes = result.diagnosis.notes.join("\n")
   inspect(notes.contains("不支持的目标类型"), content="true")
 }
+
+///|
+/// Regression: a foreign Deployment's healthy ReplicaSet and Pods share the
+/// namespace. They must not pad the target's Pod count — otherwise the
+/// "Pod was never created" symptom is masked by someone else's replicas.
+const WORKLOAD_SNAPSHOT_FOREIGN = "{\"ns\":\"prod\",\"target_kind\":\"Deployment\",\"target_name\":\"payments-api\",\"deployment\":{\"metadata\":{\"name\":\"payments-api\",\"namespace\":\"prod\",\"uid\":\"dep-1\"},\"spec\":{\"replicas\":2},\"status\":{\"readyReplicas\":0,\"availableReplicas\":0}},\"replicasets\":[{\"metadata\":{\"name\":\"payments-api-7d9f6b\",\"namespace\":\"prod\",\"uid\":\"rs-1\",\"ownerReferences\":[{\"uid\":\"dep-1\",\"kind\":\"Deployment\",\"name\":\"payments-api\"}]},\"spec\":{\"replicas\":2},\"status\":{\"readyReplicas\":0,\"conditions\":[{\"type\":\"ReplicaFailure\",\"status\":\"True\",\"reason\":\"FailedCreate\",\"message\":\"pods is forbidden: exceeded quota: compute\"}]}},{\"metadata\":{\"name\":\"other-api-abc\",\"namespace\":\"prod\",\"uid\":\"rs-foreign\",\"ownerReferences\":[{\"uid\":\"dep-2\",\"kind\":\"Deployment\",\"name\":\"other-api\"}]},\"spec\":{\"replicas\":3},\"status\":{\"readyReplicas\":3}}],\"pods\":[{\"metadata\":{\"name\":\"other-pod-1\",\"namespace\":\"prod\",\"ownerReferences\":[{\"uid\":\"rs-foreign\",\"kind\":\"ReplicaSet\",\"name\":\"other-api-abc\"}]},\"status\":{\"phase\":\"Running\"}},{\"metadata\":{\"name\":\"other-pod-2\",\"namespace\":\"prod\",\"ownerReferences\":[{\"uid\":\"rs-foreign\",\"kind\":\"ReplicaSet\",\"name\":\"other-api-abc\"}]},\"status\":{\"phase\":\"Running\"}},{\"metadata\":{\"name\":\"other-pod-3\",\"namespace\":\"prod\",\"ownerReferences\":[{\"uid\":\"rs-foreign\",\"kind\":\"ReplicaSet\",\"name\":\"other-api-abc\"}]},\"status\":{\"phase\":\"Running\"}}],\"events\":[],\"quotas\":[],\"notes\":[]}"
+
+///|
+test "foreign workload Pods do not pad the target Pod count" {
+  let snapshot = @snapshot.ClusterSnapshot::from_json(
+    @json.parse(WORKLOAD_SNAPSHOT_FOREIGN),
+  ).unwrap()
+  let result = @core.diagnose(snapshot)
+  match result.workload_facts {
+    Some(facts) => inspect(facts.pod_count, content="0")
+    None => inspect("missing workload facts", content="unexpected")
+  }
+  let ids = finding_ids(result.diagnosis.findings)
+  inspect(list_contains(ids, "workload_no_pods"), content="true")
+  // No uid-degradation note: the Deployment carries a uid, scoping succeeded.
+  let degraded = result.diagnosis.notes
+    .iter()
+    .any(fn(note : String) { note.contains("无法按归属过滤") })
+  inspect(degraded, content="false")
+}
+
+///|
+test "Deployment without uid marks ReplicaSet scoping as degraded" {
+  let snapshot = @snapshot.ClusterSnapshot::from_json(
+    @json.parse(
+      "{\"ns\":\"prod\",\"target_kind\":\"Deployment\",\"target_name\":\"no-uid\",\"deployment\":{\"metadata\":{\"name\":\"no-uid\",\"namespace\":\"prod\"},\"spec\":{\"replicas\":1}},\"replicasets\":[{\"metadata\":{\"name\":\"maybe-owned\",\"namespace\":\"prod\"},\"spec\":{\"replicas\":1},\"status\":{\"readyReplicas\":0}}],\"pods\":[],\"events\":[],\"quotas\":[],\"notes\":[]}",
+    ),
+  ).unwrap()
+  let result = @core.diagnose(snapshot)
+  let degraded = result.diagnosis.notes
+    .iter()
+    .any(fn(note : String) { note.contains("无法按归属过滤") })
+  inspect(degraded, content="true")
+}

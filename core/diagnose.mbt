@@ -57,12 +57,19 @@ fn diagnose_workload(
     deployment_uid,
     snapshot.replicasets,
   )
-  let pod_count = count_owned_pods(snapshot.replicasets, snapshot.pods)
+  // Scope the ReplicaSet list to the target Deployment before counting Pods:
+  // namespace-wide lists would let a foreign workload's Pods pad the target's
+  // count and mask the "Pod was never created" symptom.
+  let (scoped_replicasets, scoped_by_uid) = owned_replicasets(
+    snapshot.replicasets,
+    deployment_uid,
+  )
+  let pod_count = count_owned_pods(scoped_replicasets, snapshot.pods)
   let facts = match snapshot.deployment {
     Some(raw) =>
       @rules.WorkloadFacts::from_deployment(
         raw,
-        snapshot.replicasets,
+        scoped_replicasets,
         events=scoped_events,
         quotas~,
         pod_count~,
@@ -81,6 +88,11 @@ fn diagnose_workload(
   if snapshot.deployment is None {
     notes.push(
       "未读取到 Deployment 对象,结论仅基于事件与配额证据",
+    )
+  }
+  if scoped_by_uid is false && snapshot.deployment is Some(_) {
+    notes.push(
+      "Deployment 缺少 uid,无法按归属过滤 ReplicaSet;Pod 计数可能包含同 namespace 其他工作负载,证据不完整",
     )
   }
   if facts.replicasets.length() == 0 {
@@ -148,6 +160,29 @@ fn parse_quotas(items : Array[Json]) -> Array[@rules.QuotaFact] {
     }
   }
   out
+}
+
+///|
+/// Keep only ReplicaSets owned by the target Deployment (ownerReference UID
+/// match). When the Deployment UID is unavailable, scoping is impossible:
+/// return the unfiltered list and report the degradation explicitly - the
+/// caller must never present a possibly-polluted count as exact.
+fn owned_replicasets(
+  replicasets : Array[Json],
+  deployment_uid : String?,
+) -> (Array[Json], Bool) {
+  match deployment_uid {
+    Some(uid) => {
+      let owned = []
+      for rs in replicasets {
+        if @rules.owned_by_uid(rs, uid) {
+          owned.push(rs)
+        }
+      }
+      (owned, true)
+    }
+    None => (replicasets, false)
+  }
 }
 
 ///|
