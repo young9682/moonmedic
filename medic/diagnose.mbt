@@ -1,7 +1,7 @@
 ///|
-/// Shared evidence gathering for all diagnosis paths: pod object, related
-/// events and first-container logs. Failures degrade to notes so the
-/// pipeline never blocks on a single source.
+/// Shared evidence gathering for the agent path. The deterministic paths use
+/// `tools.pod_snapshot` / `tools.workload_snapshot` instead, so both share
+/// the same snapshot IR while the agent keeps its live tool loop.
 async fn gather_facts(
   target : @tools.K8sTarget,
   pod_name~ : String,
@@ -9,15 +9,13 @@ async fn gather_facts(
 ) -> (@rules.PodFacts, Array[String]) {
   let pod = @tools.get_pod(target, name=pod_name)
   let notes = []
-  let events = match @tools.get_events(target, pod_name~) {
-    Ok(lines) => lines
+  let events = match @tools.list_events_json(target) {
+    Ok(items) => events_for_pod(items, pod_name)
     Err(message) => {
       notes.push("事件读取失败:\{message}")
       []
     }
   }
-  // Logs target the first container: the API rejects container-less log
-  // requests on multi-container pods (verified live in W2).
   let container = match pod {
     Ok(pod) => @tools.first_container_name(pod)
     Err(_) => None
@@ -33,8 +31,6 @@ async fn gather_facts(
   let facts = match pod {
     Ok(pod) => @rules.PodFacts::from_pod(pod.raw(), events~, logs?)
     Err(message) => {
-      // Pod itself unreadable: still run rules over the evidence we have,
-      // so scheduling-related findings from events are not lost.
       notes.push("Pod 读取失败:\{message}")
       @rules.PodFacts::empty(events~, logs?)
     }
@@ -43,33 +39,175 @@ async fn gather_facts(
 }
 
 ///|
-/// The W2/W3 single-shot path: rule findings plus (optionally) one buffered
-/// LLM summary. Kept as the non-agent fallback.
+/// Filter raw Event objects down to one Pod, keeping the typed fields.
+fn events_for_pod(
+  items : Array[Json],
+  pod_name : String,
+) -> Array[@rules.EventFact] {
+  let parsed = @rules.events_from_items(items)
+  let out : Array[@rules.EventFact] = []
+  for event in parsed {
+    if event.name == pod_name {
+      out.push(event)
+      if out.length() >= 50 {
+        break
+      }
+    }
+  }
+  out
+}
+
+///|
+/// Diagnose a Pod by name. Pods that do not exist are reported as such; the
+/// caller may use `diagnose_target` for the automatic workload fallback.
 pub async fn diagnose_pod(
   target : @tools.K8sTarget,
   pod_name~ : String,
   logs_tail~ : Int32 = 100,
   llm_config? : @llm.LlmConfig,
 ) -> @rules.Diagnosis {
-  let (facts, notes) = gather_facts(target, pod_name~, logs_tail~)
-  let findings = @rules.run_all(facts)
-  let summary = match llm_config {
-    Some(config) =>
-      match @llm.summarize(config, facts, findings) {
-        Ok(text) => Some(text)
-        Err(message) => {
-          notes.push("LLM 归纳失败:\{message}")
-          None
-        }
-      }
-    None => None
+  let snapshot = @tools.pod_snapshot(target, pod_name~, logs_tail~)
+  let result = @core.diagnose(snapshot)
+  match (llm_config, result.pod_facts) {
+    (Some(config), Some(facts)) =>
+      summarize_pod(config, facts, result.diagnosis)
+    _ => result.diagnosis
   }
-  {
-    ns: target.ns,
-    pod: pod_name,
-    phase: facts.phase,
-    findings,
-    notes,
-    summary,
+}
+
+///|
+/// Diagnose a Deployment. The snapshot builder walks ReplicaSets and counts
+/// Pods by ownerReference, so a Pod that was never created is evidence, not a
+/// dead end.
+pub async fn diagnose_workload(
+  target : @tools.K8sTarget,
+  name~ : String,
+  llm_config? : @llm.LlmConfig,
+) -> @rules.Diagnosis {
+  match @tools.workload_snapshot(target, name~) {
+    Ok(snapshot) => {
+      let result = @core.diagnose(snapshot)
+      match (llm_config, result.workload_facts) {
+        (Some(config), Some(facts)) =>
+          summarize_workload(config, facts, result.diagnosis)
+        _ => result.diagnosis
+      }
+    }
+    Err(message) => {
+      let notes = ["工作负载读取失败:\{message}"]
+      {
+        ns: target.ns,
+        target: name,
+        target_kind: "Deployment",
+        phase: "Unknown",
+        findings: [],
+        notes,
+        summary: None,
+      }
+    }
+  }
+}
+
+///|
+/// Diagnose by name with automatic fallback: try the Pod first, then a
+/// Deployment with the same name. This is the path used by the plain
+/// `<ns> <name>` CLI form.
+pub async fn diagnose_target(
+  target : @tools.K8sTarget,
+  name~ : String,
+  llm_config? : @llm.LlmConfig,
+) -> @rules.Diagnosis {
+  let snapshot = @tools.pod_snapshot(target, pod_name=name)
+  if snapshot.pod is Some(_) {
+    let result = @core.diagnose(snapshot)
+    return match (llm_config, result.pod_facts) {
+      (Some(config), Some(facts)) =>
+        summarize_pod(config, facts, result.diagnosis)
+      _ => result.diagnosis
+    }
+  }
+  match @tools.workload_snapshot(target, name~) {
+    Ok(workload_snapshot) => {
+      let result = @core.diagnose(workload_snapshot)
+      let switch_note = if notes_indicate_not_found(snapshot.notes) {
+        "Pod 不存在,已切换为同名 Deployment 诊断"
+      } else {
+        "Pod 未能读取,已尝试同名 Deployment 诊断"
+      }
+      let notes : Array[String] = [switch_note]
+      for note in result.diagnosis.notes {
+        notes.push(note)
+      }
+      let diagnosis = { ..result.diagnosis, notes, }
+      match (llm_config, result.workload_facts) {
+        (Some(config), Some(facts)) =>
+          summarize_workload(config, facts, diagnosis)
+        _ => diagnosis
+      }
+    }
+    Err(message) => {
+      let result = @core.diagnose(snapshot)
+      let notes : Array[String] = []
+      for note in result.diagnosis.notes {
+        notes.push(note)
+      }
+      notes.push("同名 Deployment 诊断也失败:\{message}")
+      { ..result.diagnosis, notes, }
+    }
+  }
+}
+
+///|
+/// True when a Pod read failed because the object was absent, as opposed to
+/// a transport/RBAC failure. Used only to word the fallback note accurately.
+fn notes_indicate_not_found(notes : Array[String]) -> Bool {
+  for note in notes {
+    if note.contains("HTTP 404") ||
+      note.contains("NotFound") ||
+      note.contains("not found") {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Attach an optional Pod conclusion. LLM failure is a note, not a fatal
+/// error: the deterministic diagnosis is always returned.
+async fn summarize_pod(
+  config : @llm.LlmConfig,
+  facts : @rules.PodFacts,
+  diagnosis : @rules.Diagnosis,
+) -> @rules.Diagnosis {
+  match @llm.summarize(config, facts, diagnosis.findings) {
+    Ok(text) => { ..diagnosis, summary: Some(text), }
+    Err(message) => {
+      let notes : Array[String] = []
+      for note in diagnosis.notes {
+        notes.push(note)
+      }
+      notes.push("LLM 归纳失败:\{message}")
+      { ..diagnosis, notes, }
+    }
+  }
+}
+
+///|
+/// Attach an optional workload conclusion with the same degradation contract.
+async fn summarize_workload(
+  config : @llm.LlmConfig,
+  facts : @rules.WorkloadFacts,
+  diagnosis : @rules.Diagnosis,
+) -> @rules.Diagnosis {
+  match @llm.summarize_workload(config, facts, diagnosis.findings) {
+    Ok(text) => { ..diagnosis, summary: Some(text), }
+    Err(message) => {
+      let notes : Array[String] = []
+      for note in diagnosis.notes {
+        notes.push(note)
+      }
+      notes.push("LLM 归纳失败:\{message}")
+      { ..diagnosis, notes, }
+    }
   }
 }

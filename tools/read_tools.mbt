@@ -10,24 +10,32 @@ async fn get_raw(
   config : @config.ClientConfig,
   path : String,
 ) -> Result[String, String] {
-  let transport = @httptransport.HttpTransport::connect(config)
-  defer transport.close()
-  let request = @transport.Request::Request(Get, "\{config.server()}\{path}").with_header(
-    "Accept", "application/json",
-  )
-  let request = match config.authorization_header() {
-    Some(header) => request.with_header("Authorization", header)
-    None => request
-  }
-  let response = transport.send(request)
-  if !response.is_success() {
-    let body = response.body()
-    if body.length() <= 400 {
-      return Err("HTTP \{response.status()}: \{body}")
+  let outcome : Result[String, String] = try {
+    let transport = @httptransport.HttpTransport::connect(config)
+    defer transport.close()
+    let request = @transport.Request::Request(Get, "\{config.server()}\{path}").with_header(
+      "Accept", "application/json",
+    )
+    let request = match config.authorization_header() {
+      Some(header) => request.with_header("Authorization", header)
+      None => request
     }
-    return Err("HTTP \{response.status()} (body \{body.length()} bytes)")
+    let response = transport.send(request)
+    let body = response.body()
+    if response.is_success() {
+      Ok(body)
+    } else if body.length() <= 400 {
+      Err("HTTP \{response.status()}: \{body}")
+    } else {
+      Err("HTTP \{response.status()} (body \{body.length()} bytes)")
+    }
+  } catch {
+    _ =>
+      Err(
+        "集群请求失败(网络错误或地址不可达): \{config.server()}\{path}",
+      )
   }
-  Ok(response.body())
+  outcome
 }
 
 ///|
@@ -80,17 +88,29 @@ pub async fn get_events(
     events_gvr,
     @resource.Namespace(target.ns),
   )
-  let transport = @httptransport.HttpTransport::connect(config)
-  defer transport.close()
-  let response = transport.send(request)
-  if !response.is_success() {
+  let body_result : Result[String, String] = try {
+    let transport = @httptransport.HttpTransport::connect(config)
+    defer transport.close()
+    let response = transport.send(request)
     let body = response.body()
-    if body.length() <= 400 {
-      return Err("HTTP \{response.status()}: \{body}")
+    if response.is_success() {
+      Ok(body)
+    } else if body.length() <= 400 {
+      Err("HTTP \{response.status()}: \{body}")
+    } else {
+      Err("HTTP \{response.status()} (body \{body.length()} bytes)")
     }
-    return Err("HTTP \{response.status()} (body \{body.length()} bytes)")
+  } catch {
+    _ =>
+      Err(
+        "集群请求失败(网络错误或地址不可达): \{config.server()}",
+      )
   }
-  let snapshot = match @object.decode_list_snapshot(response.body()) {
+  let body = match body_result {
+    Ok(body) => body
+    Err(message) => return Err(message)
+  }
+  let snapshot = match @object.decode_list_snapshot(body) {
     Ok(snapshot) => snapshot
     Err(message) => return Err(message)
   }

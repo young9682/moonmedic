@@ -20,5 +20,11 @@ jobs:
         run: moon fmt --check
       - name: moon check
         run: moon check
+      - name: core dependency boundary
+        run: |
+          if grep -R -n -E "kubemoon|moonmedic/llm" --include='moon.pkg' core rules snapshot; then
+            echo "core/rules/snapshot must stay transport- and LLM-independent"
+            exit 1
+          fi
       - name: moon test
         run: moon test

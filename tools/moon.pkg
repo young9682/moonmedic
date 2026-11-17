@@ -6,6 +6,7 @@ import {
   "cxh04/kubemoon/resource",
   "cxh04/kubemoon/transport",
   "moonbitlang/core/json",
+  "young9682/moonmedic/snapshot",
 }
 
 supported_targets = "native"

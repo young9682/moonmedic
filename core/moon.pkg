@@ -1,0 +1,8 @@
+import {
+  "young9682/moonmedic/rules",
+  "young9682/moonmedic/snapshot",
+}
+
+import {
+  "moonbitlang/core/json",
+} for "test"

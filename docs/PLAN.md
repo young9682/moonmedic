@@ -1,7 +1,10 @@
 # moonmedic 技术方案(W0 规划稿)
 
-> 状态:设计定稿,开发未开始 · 2026-11-13
-> 本文档是 moonmedic 的目标与路径说明,随开发进展持续更新。
+> 状态:设计定稿 · 2026-11-13
+> 2026-11-17 更新:W1–W4 与 Phase A 已落地(快照 IR、对象图、配额/LimitRange 准入重建、
+> `--deployment`/`--json`,34 个测试)。Phase A/B 的验收状态见
+> [`PHASE-A-B-CHECKLIST.md`](PHASE-A-B-CHECKLIST.md)。
+> 本文档保留 W0 的目标与路径说明,随开发进展持续更新。
 
 ## 0. 定位与边界
 

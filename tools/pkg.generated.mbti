@@ -3,10 +3,14 @@ package "young9682/moonmedic/tools"
 
 import {
   "cxh04/kubemoon/object",
+  "moonbitlang/core/json",
+  "young9682/moonmedic/snapshot",
 }
 
 // Values
 pub fn first_container_name(@object.DynamicObject) -> String?
+
+pub async fn get_deployment_json(K8sTarget, name~ : String) -> Result[@json.Json, String]
 
 pub async fn get_events(K8sTarget, pod_name~ : String) -> Result[Array[String], String]
 
@@ -16,7 +20,23 @@ pub async fn get_object(K8sTarget, group~ : String, version~ : String, resource~
 
 pub async fn get_pod(K8sTarget, name~ : String) -> Result[@object.DynamicObject, String]
 
+pub async fn get_pod_json(K8sTarget, name~ : String) -> Result[@json.Json, String]
+
+pub async fn list_events_json(K8sTarget) -> Result[Array[@json.Json], String]
+
+pub async fn list_limit_ranges_json(K8sTarget) -> Result[Array[@json.Json], String]
+
 pub async fn list_pod_names(K8sTarget) -> Result[Array[String], String]
+
+pub async fn list_pods_json(K8sTarget) -> Result[Array[@json.Json], String]
+
+pub async fn list_quotas_json(K8sTarget) -> Result[Array[@json.Json], String]
+
+pub async fn list_replicasets_json(K8sTarget) -> Result[Array[@json.Json], String]
+
+pub async fn pod_snapshot(K8sTarget, pod_name~ : String, logs_tail? : Int32) -> @snapshot.ClusterSnapshot
+
+pub async fn workload_snapshot(K8sTarget, name~ : String) -> Result[@snapshot.ClusterSnapshot, String]
 
 // Errors
 

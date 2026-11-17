@@ -2,16 +2,19 @@
 /// moonmedic CLI.
 ///
 /// Usage:
-/// - `moon run cmd/main`                       list pod names in MOONMEDIC_NAMESPACE (W1 PoC)
-/// - `moon run cmd/main -- <ns> <pod>`         diagnose one pod and print a Markdown report (W2+)
+/// - `moon run cmd/main`                       list pod names in MOONMEDIC_NAMESPACE
+/// - `moon run cmd/main -- <pod>`              diagnose a Pod (fallback to Deployment)
+/// - `moon run cmd/main -- <ns> <name>`        diagnose a Pod or a same-named Deployment
+/// - `moon run cmd/main -- --deployment <ns> <name>`  diagnose a Deployment directly
+/// - `--json`                                  machine-readable output for eval
+/// - `--agent`                                 use the LLM tool loop (Pod path)
 ///
 /// Cluster configuration via environment variables:
 /// - MOONMEDIC_SERVER     default "http://127.0.0.1:8001" (kubectl proxy)
 /// - MOONMEDIC_TOKEN      optional bearer token
 /// - MOONMEDIC_CA_FILE    optional PEM file with the API server CA
 ///
-/// LLM configuration (optional, any OpenAI-compatible endpoint; without it
-/// the report falls back to the deterministic rule-engine conclusion):
+/// LLM configuration (optional; without it the report is rule-only):
 /// - MOONMEDIC_LLM_BASE_URL  e.g. "https://api.deepseek.com/v1"
 /// - MOONMEDIC_LLM_MODEL     e.g. "deepseek-chat"
 /// - MOONMEDIC_LLM_KEY       API key (empty = local/no-auth endpoints)
@@ -23,35 +26,54 @@ async fn main {
   let ca_file = @env.get_env_var("MOONMEDIC_CA_FILE")
   let llm_config = build_llm_config()
   let args = @env.args()
-  // args[0] is the program name; two operands select diagnose mode.
-  if args.length() >= 3 {
-    let ns = args[1]
-    let pod = args[2]
-    let target = @tools.K8sTarget::from_parts(server~, token~, ca_file~, ns~)
-    let diagnosis = match llm_config {
-      // LLM configured: the agent loop decides which evidence to gather.
-      Some(config) => @medic.diagnose_agent(target, pod_name=pod, config)
-      None => @medic.diagnose_pod(target, pod_name=pod)
+  let mut kind = "Pod"
+  let mut json = false
+  let mut use_agent = false
+  let operands : Array[String] = []
+  for i in 1..<args.length() {
+    let arg = args[i]
+    if arg == "--deployment" || arg == "--workload" {
+      kind = "Deployment"
+    } else if arg == "--pod" {
+      kind = "Pod"
+    } else if arg == "--json" {
+      json = true
+    } else if arg == "--agent" {
+      use_agent = true
+    } else {
+      operands.push(arg)
     }
-    println(@report.render_markdown(diagnosis))
+  }
+  if operands.length() >= 1 {
+    let ns = if operands.length() >= 2 {
+      operands[0]
+    } else {
+      @env.get_env_var("MOONMEDIC_NAMESPACE").unwrap_or("default")
+    }
+    let name = if operands.length() >= 2 { operands[1] } else { operands[0] }
+    let target = @tools.K8sTarget::from_parts(server~, token~, ca_file~, ns~)
+    let diagnosis = if kind == "Deployment" {
+      @medic.diagnose_workload(target, name~, llm_config?)
+    } else {
+      match (llm_config, use_agent) {
+        (Some(config), true) =>
+          @medic.diagnose_agent(target, pod_name=name, config)
+        (Some(_), false) => @medic.diagnose_target(target, name~, llm_config?)
+        (None, _) => @medic.diagnose_target(target, name~)
+      }
+    }
+    if json {
+      println(@report.render_json(diagnosis))
+    } else {
+      println(@report.render_markdown(diagnosis))
+    }
     return
   }
-  if args.length() == 2 {
-    // Diagnose with the default namespace when only a pod name is given.
-    let ns = @env.get_env_var("MOONMEDIC_NAMESPACE").unwrap_or("default")
-    let target = @tools.K8sTarget::from_parts(server~, token~, ca_file~, ns~)
-    let diagnosis = match llm_config {
-      Some(config) => @medic.diagnose_agent(target, pod_name=args[1], config)
-      None => @medic.diagnose_pod(target, pod_name=args[1])
-    }
-    println(@report.render_markdown(diagnosis))
-    return
-  }
-  // No operands: W1 list-pods mode.
+  // No operands: list pods in the default namespace.
   let ns = @env.get_env_var("MOONMEDIC_NAMESPACE").unwrap_or("kube-system")
   let target = @tools.K8sTarget::from_parts(server~, token~, ca_file~, ns~)
   println(
-    "moonmedic — listing pods in namespace \"\{ns}\" (usage: moonmedic <ns> <pod> to diagnose)",
+    "moonmedic — listing pods in namespace \"\{ns}\" (usage: moonmedic [--deployment] <ns> <name> to diagnose)",
   )
   println("server: \{server}")
   match @tools.list_pod_names(target) {
