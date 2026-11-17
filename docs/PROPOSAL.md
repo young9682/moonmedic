@@ -88,7 +88,7 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
 - ImagePullBackOff:区分 `manifest unknown`(镜像名/tag 错误,`image_pull_tag`)与 `denied / authentication required`(凭据问题,`image_pull_secret`);
 - 探针失败:识别 kubelet `Unhealthy` 事件(`probe_fail`),提示路径/端口/启动慢。
 
-以上运行时规则已有单测;配额场景与 LimitRange 场景将在本轮以 fixture + kind 注入补齐。
+以上运行时规则已有单测;配额场景与 LimitRange 场景已在真实 RKE2 集群上注入采集并全部通过离线 golden 回放(E01–E05,见 §5.7)。
 
 ## 5. 拟实现的核心功能
 
@@ -200,7 +200,7 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
 
 https://github.com/young9682/moonmedic
 
-main 分支已含 **59 个有效 commits**(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → Phase A 准入诊断 → Day1–5 正确性/数据完整性/结构化 Evidence/评测集 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
+main 分支已含 60+ 个有效 commits(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → Phase A 准入诊断 → Day1–5 正确性/数据完整性/结构化 Evidence/评测集 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
 
 ### 本项目由 young86 开发,最终解释权归于 young86
 
