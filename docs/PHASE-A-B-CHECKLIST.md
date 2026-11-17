@@ -1,7 +1,7 @@
 # Phase A/B 验收清单(响应评审驳回)
 
 > 状态:**Phase A 已完成;Phase B 计划中**。
-> 当前基线:main 分支 W1–W4 已交付;Phase A 已落地(快照 IR、core/adapter 边界、准入失败规则、`--deployment`/`--json`),36 个测试通过。Phase B 的 kind 评测集尚未开始。
+> 当前基线:main 分支 W1–W4 已交付;Phase A 已落地(快照 IR、core/adapter 边界、准入失败规则、`--deployment`/`--json`),38 个测试通过。Phase B 的 kind 评测集尚未开始。
 > 维护:young86
 
 ## 0. 两条拒稿理由与关闭条件
@@ -96,7 +96,7 @@
 - [x] 新增:缺 Pod 因果链;
 - [x] 新增:规则仲裁;
 - [x] 新增:`--json` 输出快照;
-- [x] 目标:32+ 个测试(当前 36)。
+- [x] 目标:32+ 个测试(当前 38)。
 
 **验收**:`moon fmt --check`、`moon check`、`moon test` 全绿。
 
@@ -156,7 +156,7 @@
 
 - [x] `moon fmt --check` 通过;
 - [x] `moon check` 通过;
-- [x] `moon test` 全绿,36 个测试;
+- [x] `moon test` 全绿,38 个测试;
 - [x] `core`、`rules`、`snapshot` 不 import kubemoon;
 - [x] `core`、`rules`、`snapshot` 不 import LLM;
 - [x] `core` 的 fixture 测试在无集群、无网络、无 API key 时通过;
@@ -184,6 +184,11 @@
   “不可用(不存在或读取失败)”,仅在读到 HTTP 404 时写“Pod 不存在”。
 - **事件归属未过滤**:命名空间事件会包含其它 Pod/工作负载的记录。`core` 已按
   `involvedObject.name` 过滤,只保留目标 Pod 或其 Deployment/ReplicaSet 的事件。
+- **事件过滤范围过宽(复查发现)**:初版把命名空间里所有 ReplicaSet 的名字都纳入
+  过滤,别的 Deployment 的 FailedCreate 仍可能混入。已改为只纳入
+  `ownerReferences.uid == Deployment.uid` 的 ReplicaSet,并加回归用例。
+- **配额差额高估(复查发现)**:初版用 `spec.replicas` 计算缺口,部分 Pod 已创建时
+  会算大。已改为 `desired - pod_count`,只计算还缺的副本。
 - **本地假 API 验证**:用假 API Server 跑通 Deployment → RS → FailedCreate →
   Quota → 0 Pod 的完整链路,而不是只依赖 fixture 单测。
 
