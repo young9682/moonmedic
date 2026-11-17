@@ -6,19 +6,60 @@ import {
 }
 
 // Values
+pub fn events_from_items(Array[@json.Json]) -> Array[EventFact]
+
+pub fn events_from_json_array(@json.Json) -> Array[EventFact]
+
+pub fn object_uid(@json.Json) -> String?
+
+pub fn owned_by_uid(@json.Json, String) -> Bool
+
+pub fn parse_quantity(String) -> Double?
+
+pub fn quantity_compare(String, String) -> Int32?
+
+pub fn quantity_headroom(String, String) -> Double?
+
+pub fn quantity_saturated(String, String) -> Bool
+
+pub fn quota_usage_percent(String, String) -> Int32?
+
 pub fn run_all(PodFacts) -> Array[Finding]
+
+pub fn run_all_workload(WorkloadFacts) -> Array[Finding]
 
 // Errors
 
 // Types and methods
+pub(all) struct ConditionFact {
+  type_ : String
+  status : String
+  reason : String
+  message : String
+}
+
 pub(all) struct Diagnosis {
   ns : String
-  pod : String
+  target : String
+  target_kind : String
   phase : String
   findings : Array[Finding]
   notes : Array[String]
   summary : String?
 }
+
+pub(all) struct EventFact {
+  reason : String
+  message : String
+  event_type : String
+  kind : String
+  name : String
+  count : Int32
+  last_seen : String?
+}
+pub fn EventFact::from_json(@json.Json) -> Self?
+pub fn EventFact::is_failed_create(Self) -> Bool
+pub fn EventFact::text(Self) -> String
 
 pub(all) struct Finding {
   rule_id : String
@@ -38,16 +79,55 @@ pub struct PodFacts {
   last_term_exit : Int32?
   mem_limit : String?
   image : String?
-  events : Array[String]
+  events : Array[EventFact]
   logs_tail : String?
 }
-pub fn PodFacts::empty(events~ : Array[String], logs? : String) -> Self
-pub fn PodFacts::from_pod(@json.Json, events~ : Array[String], logs? : String) -> Self
+pub fn PodFacts::empty(events~ : Array[EventFact], logs? : String) -> Self
+pub fn PodFacts::from_pod(@json.Json, events~ : Array[EventFact], logs? : String) -> Self
+
+pub(all) struct QuotaFact {
+  name : String
+  hard : Array[(String, String)]
+  used : Array[(String, String)]
+}
+pub fn QuotaFact::from_json(@json.Json) -> Self?
+pub fn QuotaFact::hard_quantity(Self, String) -> String?
+pub fn QuotaFact::used_quantity(Self, String) -> String?
+
+pub(all) struct ReplicaSetFact {
+  name : String
+  desired : Int32
+  ready : Int32
+  conditions : Array[ConditionFact]
+}
 
 pub struct Rule {
   id : String
   title : String
   check : (PodFacts) -> Finding?
+}
+
+pub(all) struct WorkloadFacts {
+  ns : String
+  kind : String
+  name : String
+  desired : Int32
+  ready : Int32
+  available : Int32
+  conditions : Array[ConditionFact]
+  replicasets : Array[ReplicaSetFact]
+  events : Array[EventFact]
+  quotas : Array[QuotaFact]
+  pod_count : Int32
+  pod_missing : Bool
+}
+pub fn WorkloadFacts::empty(ns~ : String, kind~ : String, name~ : String, events~ : Array[EventFact], quotas~ : Array[QuotaFact]) -> Self
+pub fn WorkloadFacts::from_deployment(@json.Json, Array[@json.Json], events~ : Array[EventFact], quotas~ : Array[QuotaFact], pod_count~ : Int32) -> Self
+
+pub struct WorkloadRule {
+  id : String
+  title : String
+  check : (WorkloadFacts) -> Finding?
 }
 
 // Type aliases
