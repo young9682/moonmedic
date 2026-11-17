@@ -27,7 +27,7 @@ msgs = " ".join(
 if kind in ("e01", "e02", "e05"):
     ok = "exceeded quota" in msgs
 elif kind == "e03":
-    ok = "LimitRange" in msgs or "must be less than or equal to" in msgs
+    ok = "LimitRange" in msgs or "must be less than or equal to" in msgs or "maximum memory usage" in msgs or "maximum cpu usage" in msgs
 elif kind == "e04":
     ok = "exceeded quota" in msgs
 else:
