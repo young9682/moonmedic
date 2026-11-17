@@ -12,7 +12,7 @@ moonmedic 是一个用 MoonBit 编写的 Kubernetes 只读故障诊断引擎。�
 
 目标架构中,核心引擎不依赖 kubemoon——kubemoon 仅作为可替换的快照适配器;也不依赖 LLM——LLM 仅作为可选叙述层。所有结论绑定 API 路径、字段与时间戳,可被单测、快照回放和故障注入评测。现有 W1–W4 实现为 MoonBit(native 后端,零 C stub),全程仅发 GET 请求,已在真实 RKE2 集群上完成端到端验证;本轮新增部分沿用同一技术栈。
 
-当前状态:W1–W4(骨架、规则引擎、LLM 归纳、Agent 循环)与 Phase A(核心与适配器分离、准入失败取证、`--deployment`/`--json`)已交付,36 个测试通过;Phase B 的可回放评测集正在进行,详见 §5.7、§5.9。
+当前状态:W1–W4(骨架、规则引擎、LLM 归纳、Agent 循环)与 Phase A(核心与适配器分离、准入失败取证、`--deployment`/`--json`)已交付,38 个测试通过;Phase B 的可回放评测集正在进行,详见 §5.7、§5.9。
 
 ## 3. 项目方向与通用性说明
 
@@ -134,11 +134,11 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
 
 | 能力 | W1–W4 已交付 | Phase A 已交付 | Phase B 目标 |
 |---|---|---|---|
-| Pod 运行时诊断 | 6 条规则、18 个单测、真机 e2e | 保留并扩展至 36 个测试 | 补 kind 回归 |
+| Pod 运行时诊断 | 6 条规则、18 个单测、真机 e2e | 保留并扩展至 38 个测试 | 补 kind 回归 |
 | 对象图 / 准入失败 | 无 | 快照 IR、Deployment→RS→Pod、配额数值重建 + LimitRange 识别 | 补 StatefulSet/DaemonSet、完整 LimitRange 回放 |
 | CLI | 列 Pod、诊断 Pod | `--deployment`、`--json`、404 自动切换 | golden/评测脚本集成 |
 | 评测 | 单测 + CI | core 离线单测 + CI 依赖边界 | 8 个 kind 场景、录制回放、基准 |
-| 测试规模 | 18 | 36 | 40+ |
+| 测试规模 | 18 | 38 | 40+ |
 | 规则规模 | 6 条 Pod 规则 | 12+(Pod 6 + 工作负载/准入 6) | 保持并补数据 |
 
 **5.8 开发与验证闭环**
@@ -158,11 +158,14 @@ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
   5. 网络连接失败时 `OSError` 未捕获,CLI 直接崩溃;已加 `try/catch` 边界并降级;
   6. 配额证据字符串缺少 MoonBit 插值,输出字面量 `{used}`;已修复并加断言;
   7. 命名空间事件未按目标过滤,可能把别的 Pod/工作负载事件算进来;已按
-     `involvedObject.name` 限定到目标 Pod 或其 Deployment/ReplicaSet。
+     `involvedObject.name` 限定到目标 Pod,并进一步限定到
+     `ownerReferences.uid == Deployment.uid` 的 ReplicaSet;
+  8. 配额差额按 `spec.replicas` 计算,部分 Pod 已创建时会高估;已改为
+     `desired - pod_count`,只计算还缺的副本。
 
 **5.9 未完成事项与范围变化**
 
-- Phase A(核心分离 + 准入路径 + CLI)已落地,36 个测试通过;
+- Phase A(核心分离 + 准入路径 + CLI)已落地,38 个测试通过;
 - Phase B(Harness + 录制回放 + 基准)尚未开始;
 - Phase A 未包含 LLM 证据编号校验与 Agent 工作负载工具扩展,二者归入 Phase B/C;
 - Phase C(StatefulSet/DaemonSet、节点容量、上一容器日志、日志签名、提示注入防护)列为可选,若时间不足将明确标注未完成;
