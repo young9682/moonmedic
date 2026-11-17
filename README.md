@@ -144,7 +144,7 @@ moon run cmd/main -- prod payments-api
 ```bash
 moon fmt --check   # 格式
 moon check         # 类型检查
-moon test          # 36 个测试(规则 / Quantity / 事件 / 快照 / core / 报告)
+moon test          # 38 个测试(规则 / Quantity / 事件 / 快照 / core / 报告)
 ```
 
 CI(`.github/workflows/ci.yml`,Ubuntu)在每次 push 与 PR 上运行以上三步,
