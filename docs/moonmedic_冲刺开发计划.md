@@ -417,7 +417,7 @@ eval/
 
 ## Day 5：结构化 Evidence 与诊断仲裁
 
-### 任务 A：结构化 Evidence
+### 任务 A：结构化 Evidence ✅(2026-11-18)
 
 当前 Finding 如果仍主要使用 `Array[String]`
 保存证据，应升级为可机器检查的结构化证据。
