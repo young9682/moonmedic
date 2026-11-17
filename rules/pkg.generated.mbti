@@ -62,12 +62,23 @@ pub fn EventFact::from_json(@json.Json) -> Self?
 pub fn EventFact::is_failed_create(Self) -> Bool
 pub fn EventFact::text(Self) -> String
 
+pub(all) struct Evidence {
+  source : String
+  resource_kind : String
+  object_name : String
+  field_path : String
+  observed_value : String
+  observed_at : String?
+  resource_version : String?
+}
+
 pub(all) struct Finding {
   rule_id : String
   title : String
   detail : String
   confidence : Double
   evidence : Array[String]
+  evidence_refs : Array[Evidence]
 }
 
 pub struct PodFacts {

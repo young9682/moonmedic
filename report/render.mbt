@@ -46,6 +46,11 @@ pub fn render_markdown(d : @rules.Diagnosis) -> String {
       for item in finding.evidence {
         out.push("  - \{item}")
       }
+      for ref in finding.evidence_refs {
+        out.push(
+          "  - ⌗ \{ref.resource_kind}/\{ref.object_name} · \{ref.field_path} = \{ref.observed_value}",
+        )
+      }
       out.push("")
     }
   }
@@ -85,11 +90,27 @@ pub fn render_json(d : @rules.Diagnosis) -> String {
     item["title"] = Json::string(finding.title)
     item["detail"] = Json::string(finding.detail)
     item["confidence"] = Json::number(finding.confidence)
+    item["layer"] = Json::string(finding_layer(finding.rule_id))
     let evidence : Array[Json] = []
     for line in finding.evidence {
       evidence.push(Json::string(line))
     }
     item["evidence"] = Json::array(evidence)
+    let refs : Array[Json] = []
+    for ref in finding.evidence_refs {
+      let ref_item : Map[String, Json] = Map([])
+      ref_item["source"] = Json::string(ref.source)
+      ref_item["resource_kind"] = Json::string(ref.resource_kind)
+      ref_item["object_name"] = Json::string(ref.object_name)
+      ref_item["field_path"] = Json::string(ref.field_path)
+      ref_item["observed_value"] = Json::string(ref.observed_value)
+      match ref.observed_at {
+        Some(at) => ref_item["observed_at"] = Json::string(at)
+        None => ()
+      }
+      refs.push(Json::object(ref_item))
+    }
+    item["evidence_refs"] = Json::array(refs)
     findings.push(Json::object(item))
   }
   root["findings"] = Json::array(findings)
@@ -103,4 +124,25 @@ pub fn render_json(d : @rules.Diagnosis) -> String {
     None => Json::null()
   }
   Json::object(root).stringify()
+}
+
+///|
+/// Diagnosis layer per rule (Task B presentation layering): root_cause /
+/// mechanism / symptom / insufficient. Unknown rule ids fall back to
+/// "related" so the JSON contract stays forward-compatible.
+fn finding_layer(rule_id : String) -> String {
+  match rule_id {
+    "quota_exceeded"
+    | "limitrange_reject"
+    | "oomkilled_limit"
+    | "crash_exit_1"
+    | "image_pull_tag"
+    | "image_pull_secret"
+    | "sched_insufficient"
+    | "probe_fail" => "root_cause"
+    "replicaset_create_failed" | "deployment_stalled" => "mechanism"
+    "workload_no_pods" => "symptom"
+    "insufficient_evidence" => "insufficient"
+    _ => "related"
+  }
 }

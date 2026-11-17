@@ -28,6 +28,17 @@ test "render_json exposes target kind, rule ids and notes" {
         detail: "detail",
         confidence: 0.98,
         evidence: ["ResourceQuota/compute: pods used=\"10\", hard=\"10\""],
+        evidence_refs: [
+          @rules.Evidence::{
+            source: "resourcequota",
+            resource_kind: "ResourceQuota",
+            object_name: "compute",
+            field_path: "status.pods",
+            observed_value: "used=10, hard=10",
+            observed_at: None,
+            resource_version: None,
+          },
+        ],
       },
     ],
     notes: ["fixture"],
