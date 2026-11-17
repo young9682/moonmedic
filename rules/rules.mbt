@@ -78,6 +78,11 @@ fn rule_oomkilled(facts : PodFacts) -> Finding? {
     detail: "容器上次以 OOMKilled 结束,通常是 memory limit 过低或进程存在内存泄漏。建议:1) 对比进程实际内存与当前 limit;2) 排查泄漏;3) 适当提高 limits.memory。",
     confidence: 0.9,
     evidence,
+    evidence_refs: pod_evidence_refs(
+      facts,
+      field_path="status.containerStatuses[0].lastState.terminated.reason",
+      observed_value="OOMKilled",
+    ),
   })
 }
 
@@ -101,6 +106,11 @@ fn rule_crash_exit_1(facts : PodFacts) -> Finding? {
     detail: "容器进入 CrashLoopBackOff 且上次退出码为 1,多为应用自身启动失败(配置缺失、依赖不可达、fatal 日志)。建议查看容器日志尾部的报错栈。",
     confidence: 0.8,
     evidence,
+    evidence_refs: pod_evidence_refs(
+      facts,
+      field_path="state.waiting.reason",
+      observed_value="CrashLoopBackOff",
+    ),
   })
 }
 
@@ -128,6 +138,16 @@ fn rule_sched_insufficient(facts : PodFacts) -> Finding? {
     detail: "事件显示 FailedScheduling,常见原因是节点资源不足、配额打满或亲和性/污点不匹配。请结合事件消息中的具体缺口( cpu / memory / pvc )处理。",
     confidence: 0.85,
     evidence: [event.text()],
+    evidence_refs: [
+      evidence_ref(
+        source="events",
+        resource_kind=event.kind,
+        object_name=event.name,
+        field_path="events[reason=FailedCreate].message",
+        observed_value=event.message,
+        observed_at=event.last_seen,
+      ),
+    ],
   })
 }
 
@@ -179,6 +199,24 @@ fn rule_image_pull_tag(facts : PodFacts) -> Finding? {
     detail: "仓库返回 manifest unknown / not found:检查镜像名拼写与 tag 是否真实存在;若为私有仓库镜像被公开引用也会报此错。",
     confidence: 0.85,
     evidence,
+    evidence_refs: [
+      evidence_ref(
+        source="pod",
+        resource_kind="Pod",
+        object_name=facts.pod,
+        field_path="spec.containers[0].image",
+        observed_value=facts.image.unwrap_or(""),
+        observed_at=None,
+      ),
+      evidence_ref(
+        source="events",
+        resource_kind=event.kind,
+        object_name=event.name,
+        field_path="events[reason=FailedCreate].message",
+        observed_value=event.message,
+        observed_at=event.last_seen,
+      ),
+    ],
   })
 }
 
@@ -207,6 +245,24 @@ fn rule_image_pull_secret(facts : PodFacts) -> Finding? {
     detail: "仓库返回 denied / authentication required:私有仓库需要 imagePullSecrets。检查 ServiceAccount 是否绑定了正确的 docker-registry secret,以及凭据是否过期。",
     confidence: 0.8,
     evidence: [event.text()],
+    evidence_refs: [
+      evidence_ref(
+        source="pod",
+        resource_kind="Pod",
+        object_name=facts.pod,
+        field_path="spec.containers[0].image",
+        observed_value=facts.image.unwrap_or(""),
+        observed_at=None,
+      ),
+      evidence_ref(
+        source="events",
+        resource_kind=event.kind,
+        object_name=event.name,
+        field_path="events[reason=FailedCreate].message",
+        observed_value=event.message,
+        observed_at=event.last_seen,
+      ),
+    ],
   })
 }
 
@@ -228,6 +284,16 @@ fn rule_probe_fail(facts : PodFacts) -> Finding? {
     detail: "常见原因:探针路径/端口配置错误、应用启动慢于探针初检(建议配置 startupProbe)、依赖服务不可达。结合探针类型与返回码定位。",
     confidence: 0.75,
     evidence: [event.text()],
+    evidence_refs: [
+      evidence_ref(
+        source="events",
+        resource_kind=event.kind,
+        object_name=event.name,
+        field_path="events[reason=Unhealthy].message",
+        observed_value=event.message,
+        observed_at=event.last_seen,
+      ),
+    ],
   })
 }
 
@@ -279,7 +345,9 @@ fn saturated_quota_lines(
           if quantity_saturated(used, hard) {
             let percent = match quota_usage_percent(used, hard) {
               Some(value) => "\{value}%"
-              None => ""
+              // hard=0(如 pods=0)在数学上是 0/0:语义上任何请求都超限,
+              // 显示 n/a 而不是空括号。
+              None => "n/a"
             }
             lines.push(
               "ResourceQuota/\{quota.name} status: \{resource} used=\"\{used}\", hard=\"\{hard}\"(\{percent})",
@@ -291,6 +359,47 @@ fn saturated_quota_lines(
     }
   }
   (lines, resources)
+}
+
+///|
+/// Build a structured evidence reference from fact-level fields. `source`
+/// records where the value was collected from (kubernetes object kinds or
+/// the snapshot computation layer).
+fn evidence_ref(
+  source~ : String,
+  resource_kind~ : String,
+  object_name~ : String,
+  field_path~ : String,
+  observed_value~ : String,
+  observed_at~ : String? = None,
+) -> Evidence {
+  {
+    source,
+    resource_kind,
+    object_name,
+    field_path,
+    observed_value,
+    observed_at,
+    resource_version: None,
+  }
+}
+
+///|
+/// Structured refs for Pod-field rules (PodFacts carries the observed values).
+fn pod_evidence_refs(
+  facts : PodFacts,
+  field_path~ : String,
+  observed_value~ : String,
+) -> Array[Evidence] {
+  [
+    evidence_ref(
+      source="pod",
+      resource_kind="Pod",
+      object_name=facts.pod,
+      field_path~,
+      observed_value~,
+    ),
+  ]
 }
 
 ///|
@@ -367,12 +476,66 @@ fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
   } else {
     "未读取到 FailedCreate 事件,但工作负载期望副本 > 0 而归属 Pod 为 0;结论依据配额数据与缺失 Pod 现象。"
   }
+  let refs : Array[Evidence] = []
+  for quota in facts.quotas {
+    for pair in quota.hard {
+      let (resource, hard) = pair
+      match quota.used_quantity(resource) {
+        Some(used) =>
+          if quantity_saturated(used, hard) {
+            refs.push(
+              evidence_ref(
+                source="resourcequota",
+                resource_kind="ResourceQuota",
+                object_name=quota.name,
+                field_path="status." + resource,
+                observed_value="used=" + used + ", hard=" + hard,
+                observed_at=None,
+              ),
+            )
+          }
+        None => ()
+      }
+    }
+  }
+  for event in facts.events {
+    if event.is_failed_create() && event.message.contains("quota") {
+      refs.push(
+        evidence_ref(
+          source="events",
+          resource_kind=event.kind,
+          object_name=event.name,
+          field_path="events[reason=FailedCreate].message",
+          observed_value=event.message,
+          observed_at=event.last_seen,
+        ),
+      )
+    }
+  }
+  for rs in facts.replicasets {
+    for condition in rs.conditions {
+      if condition.type_ == "ReplicaFailure" &&
+        condition.message.contains("quota") {
+        refs.push(
+          evidence_ref(
+            source="replicaset",
+            resource_kind="ReplicaSet",
+            object_name=rs.name,
+            field_path="status.conditions[ReplicaFailure].message",
+            observed_value=condition.message,
+            observed_at=None,
+          ),
+        )
+      }
+    }
+  }
   Some({
     rule_id: "quota_exceeded",
     title: "命名空间配额耗尽,新 Pod 无法创建",
     detail: "\{resource_text}\{cause_text}\{recommendation}建议:1) 清理不再使用的 Pod/Job 释放配额;2) 核对 requests 与 limits 是否计入预期资源;3) 由管理员提高 ResourceQuota 上限。",
     confidence,
     evidence,
+    evidence_refs: refs,
   })
 }
 
@@ -417,12 +580,66 @@ fn rule_quota_at_capacity(facts : WorkloadFacts) -> Finding? {
   if lines.length() == 0 {
     return None
   }
+  let refs : Array[Evidence] = []
+  for quota in facts.quotas {
+    for pair in quota.hard {
+      let (resource, hard) = pair
+      match quota.used_quantity(resource) {
+        Some(used) =>
+          if quantity_saturated(used, hard) {
+            refs.push(
+              evidence_ref(
+                source="resourcequota",
+                resource_kind="ResourceQuota",
+                object_name=quota.name,
+                field_path="status." + resource,
+                observed_value="used=" + used + ", hard=" + hard,
+                observed_at=None,
+              ),
+            )
+          }
+        None => ()
+      }
+    }
+  }
+  for event in facts.events {
+    if event.is_failed_create() && event.message.contains("quota") {
+      refs.push(
+        evidence_ref(
+          source="events",
+          resource_kind=event.kind,
+          object_name=event.name,
+          field_path="events[reason=FailedCreate].message",
+          observed_value=event.message,
+          observed_at=event.last_seen,
+        ),
+      )
+    }
+  }
+  for rs in facts.replicasets {
+    for condition in rs.conditions {
+      if condition.type_ == "ReplicaFailure" &&
+        condition.message.contains("quota") {
+        refs.push(
+          evidence_ref(
+            source="replicaset",
+            resource_kind="ReplicaSet",
+            object_name=rs.name,
+            field_path="status.conditions[ReplicaFailure].message",
+            observed_value=condition.message,
+            observed_at=None,
+          ),
+        )
+      }
+    }
+  }
   Some({
     rule_id: "quota_at_capacity",
     title: "命名空间配额已用满",
     detail: "ResourceQuota 的 used 已达到 hard 上限。当前工作负载可能仍可运行,但任何新的 Pod 创建/滚动更新都可能被拒绝。建议提前清理或扩容配额。",
     confidence: 0.7,
     evidence: lines,
+    evidence_refs: refs,
   })
 }
 
@@ -441,6 +658,16 @@ fn rule_replicaset_create_failed(facts : WorkloadFacts) -> Finding? {
           evidence: [
             "ReplicaSet/\{rs.name} desired=\{rs.desired}, ready=\{rs.ready}",
             "ReplicaSet/\{rs.name} condition: type=ReplicaFailure status=True reason=\{condition.reason} message=\{condition.message}",
+          ],
+          evidence_refs: [
+            evidence_ref(
+              source="replicaset",
+              resource_kind="ReplicaSet",
+              object_name=rs.name,
+              field_path="status.conditions[ReplicaFailure].message",
+              observed_value=condition.message,
+              observed_at=None,
+            ),
           ],
         })
       }
@@ -481,12 +708,51 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
   } else {
     "未观察到 FailedCreate 事件;请检查控制器状态、RBAC 或准入 Webhook。"
   }
+  let refs : Array[Evidence] = [
+    evidence_ref(
+      source="deployment",
+      resource_kind="Deployment",
+      object_name=facts.name,
+      field_path="spec.replicas",
+      observed_value="\{facts.desired}",
+      observed_at=None,
+    ),
+    evidence_ref(
+      source="deployment",
+      resource_kind="Deployment",
+      object_name=facts.name,
+      field_path="status.readyReplicas",
+      observed_value="\{facts.ready}",
+      observed_at=None,
+    ),
+    evidence_ref(
+      source="snapshot",
+      resource_kind="Deployment",
+      object_name=facts.name,
+      field_path="owned_pod_count",
+      observed_value="\{facts.pod_count}",
+      observed_at=None,
+    ),
+  ]
+  for event in failed {
+    refs.push(
+      evidence_ref(
+        source="events",
+        resource_kind=event.kind,
+        object_name=event.name,
+        field_path="events[reason=FailedCreate].message",
+        observed_value=event.message,
+        observed_at=event.last_seen,
+      ),
+    )
+  }
   Some({
     rule_id: "workload_no_pods",
     title: "工作负载没有任何 Pod(不是崩溃,而是未创建)",
     detail: "控制器期望 \{facts.desired} 个副本,但其 ReplicaSet 下没有任何 Pod。\{cause_text}优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
     confidence,
     evidence,
+    evidence_refs: refs,
   })
 }
 
@@ -507,8 +773,21 @@ fn rule_limitrange_reject(facts : WorkloadFacts) -> Finding? {
     event.is_failed_create() && looks_like_limitrange(event.message)
   })
   let evidence : Array[String] = []
+  let refs : Array[Evidence] = []
   match matched {
-    Some(event) => evidence.push(event.text())
+    Some(event) => {
+      evidence.push(event.text())
+      refs.push(
+        evidence_ref(
+          source="events",
+          resource_kind=event.kind,
+          object_name=event.name,
+          field_path="events[reason=FailedCreate].message",
+          observed_value=event.message,
+          observed_at=event.last_seen,
+        ),
+      )
+    }
     None => ()
   }
   for rs in facts.replicasets {
@@ -530,6 +809,7 @@ fn rule_limitrange_reject(facts : WorkloadFacts) -> Finding? {
     detail: "创建失败信息包含 LimitRange 的 min/max 约束。检查命名空间 LimitRange 的 default/min/max 与 Pod 的 requests/limits 是否匹配(尤其是未显式设置 resources 的容器)。",
     confidence: 0.85,
     evidence,
+    evidence_refs: refs,
   })
 }
 
@@ -549,6 +829,16 @@ fn rule_deployment_stalled(facts : WorkloadFacts) -> Finding? {
           "Deployment/\{facts.name} condition Progressing=False reason=ProgressDeadlineExceeded",
           "Deployment/\{facts.name} desired=\{facts.desired}, ready=\{facts.ready}, available=\{facts.available}",
         ],
+        evidence_refs: [
+          evidence_ref(
+            source="deployment",
+            resource_kind="Deployment",
+            object_name=facts.name,
+            field_path="status.conditions[Progressing]",
+            observed_value=condition.message,
+            observed_at=None,
+          ),
+        ],
       })
     }
   }
@@ -561,6 +851,16 @@ fn rule_deployment_stalled(facts : WorkloadFacts) -> Finding? {
         confidence: 0.8,
         evidence: [
           "Deployment/\{facts.name} condition ReplicaFailure=True reason=\{condition.reason} message=\{condition.message}",
+        ],
+        evidence_refs: [
+          evidence_ref(
+            source="deployment",
+            resource_kind="Deployment",
+            object_name=facts.name,
+            field_path="status.conditions[condition.type_].message",
+            observed_value=condition.message,
+            observed_at=None,
+          ),
         ],
       })
     }
@@ -595,6 +895,24 @@ fn rule_insufficient_evidence(facts : WorkloadFacts) -> Finding? {
     detail: "以下数据源不可用或被截断,依赖它们的结论已降级或不输出;请修复采集权限、放大分页上限后重试。",
     confidence: 0.2,
     evidence: reasons,
+    evidence_refs: [
+      evidence_ref(
+        source="snapshot",
+        resource_kind="ListStatus",
+        object_name="pods",
+        field_path="data_status.pods",
+        observed_value=facts.pods_status.label(),
+        observed_at=None,
+      ),
+      evidence_ref(
+        source="snapshot",
+        resource_kind="ListStatus",
+        object_name="events",
+        field_path="data_status.events",
+        observed_value=facts.events_status.label(),
+        observed_at=None,
+      ),
+    ],
   })
 }
 

@@ -18,6 +18,7 @@ test "build_summary_prompt includes facts, findings and events" {
       detail: "d",
       confidence: 0.85,
       evidence: ["FailedScheduling: ..."],
+      evidence_refs: [],
     },
   ]
   let prompt = build_summary_prompt(facts, findings)

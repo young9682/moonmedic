@@ -1,11 +1,29 @@
 ///|
 /// A single conclusion produced by a diagnostic rule.
+
+///|
+/// A machine-checkable evidence reference: which Kubernetes object and field
+/// a conclusion was derived from. `evidence` (text) stays for humans and LLM
+/// narration; `evidence_refs` is the checkable layer.
+pub(all) struct Evidence {
+  source : String
+  resource_kind : String
+  object_name : String
+  field_path : String
+  observed_value : String
+  observed_at : String?
+  resource_version : String?
+}
+
+///|
+/// Structured result of one diagnosis run.
 pub(all) struct Finding {
   rule_id : String
   title : String
   detail : String
   confidence : Double
   evidence : Array[String]
+  evidence_refs : Array[Evidence]
 }
 
 ///|
