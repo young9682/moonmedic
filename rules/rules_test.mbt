@@ -237,6 +237,45 @@ test "quota scenario: missing Pod is explained by quota + FailedCreate" {
 }
 
 ///|
+test "pods recommendation counts only missing replicas" {
+  let events = [
+    event(
+      "FailedCreate",
+      "pods is forbidden: exceeded quota: compute",
+      kind="ReplicaSet",
+      name="payments-api-7d9f6b",
+    ),
+  ]
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_QUOTA),
+    @json.parse(QUOTA_COMPUTE),
+    events,
+    pod_count=1,
+  )
+  let findings = @rules.run_all_workload(facts)
+  inspect(findings[0].rule_id, content="quota_exceeded")
+  inspect(findings[0].detail.contains("还差 1"), content="true")
+  inspect(findings[0].detail.contains("≥11"), content="true")
+}
+
+///|
+test "quota_exceeded without FailedCreate does not claim one" {
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_HEALTHY),
+    @json.parse(QUOTA_COMPUTE),
+    [],
+    pod_count=0,
+  )
+  let findings = @rules.run_all_workload(facts)
+  inspect(findings[0].rule_id, content="quota_exceeded")
+  inspect(
+    findings[0].detail.contains("未读取到 FailedCreate"),
+    content="true",
+  )
+  inspect(findings[0].detail.contains("控制器已报告"), content="false")
+}
+
+///|
 test "quota_at_capacity fires without a creation failure" {
   let facts = workload_fixture_facts(
     @json.parse(REPLICASET_HEALTHY),

@@ -362,10 +362,15 @@ fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
     Some(text) => text
     None => ""
   }
+  let cause_text = if corroborated {
+    "控制器已报告 FailedCreate,说明 Pod 不是崩溃而是根本没有被创建。"
+  } else {
+    "未读取到 FailedCreate 事件,但工作负载期望副本 > 0 而归属 Pod 为 0;结论依据配额数据与缺失 Pod 现象。"
+  }
   Some({
     rule_id: "quota_exceeded",
     title: "命名空间配额耗尽,新 Pod 无法创建",
-    detail: "\{resource_text}控制器已报告 FailedCreate,说明 Pod 不是崩溃而是根本没有被创建。\{recommendation}建议:1) 清理不再使用的 Pod/Job 释放配额;2) 核对 requests 与 limits 是否计入预期资源;3) 由管理员提高 ResourceQuota 上限。",
+    detail: "\{resource_text}\{cause_text}\{recommendation}建议:1) 清理不再使用的 Pod/Job 释放配额;2) 核对 requests 与 limits 是否计入预期资源;3) 由管理员提高 ResourceQuota 上限。",
     confidence,
     evidence,
   })
@@ -376,7 +381,8 @@ fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
 /// workload needs and what hard limit would admit them. Other resources stay
 /// qualitative because their request sums need the Pod template.
 fn pods_quota_recommendation(facts : WorkloadFacts) -> String? {
-  if facts.desired <= 0 {
+  let needed = facts.desired - facts.pod_count
+  if needed <= 0 {
     return None
   }
   for quota in facts.quotas {
@@ -386,7 +392,7 @@ fn pods_quota_recommendation(facts : WorkloadFacts) -> String? {
       if hard is Some(hard_text) {
         if parse_quantity(used_text) is Some(used_value) {
           if parse_quantity(hard_text) is Some(hard_value) {
-            let required = used_value + facts.desired.to_double()
+            let required = used_value + needed.to_double()
             if required > hard_value {
               let gap = (required - hard_value).to_int()
               return Some(
@@ -464,10 +470,15 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
   for event in failed {
     evidence.push(event.text())
   }
+  let cause_text = if failed.length() > 0 {
+    "这不是容器启动失败,而是创建请求在准入阶段被拒绝。"
+  } else {
+    "未观察到 FailedCreate 事件;请检查控制器状态、RBAC 或准入 Webhook。"
+  }
   Some({
     rule_id: "workload_no_pods",
     title: "工作负载没有任何 Pod(不是崩溃,而是未创建)",
-    detail: "控制器期望 \{facts.desired} 个副本,但其 ReplicaSet 下没有任何 Pod。这不是容器启动失败,而是创建请求在准入阶段被拒绝。优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
+    detail: "控制器期望 \{facts.desired} 个副本,但其 ReplicaSet 下没有任何 Pod。\{cause_text}优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
     confidence,
     evidence,
   })
