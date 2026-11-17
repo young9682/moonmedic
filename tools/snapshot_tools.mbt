@@ -137,18 +137,12 @@ pub async fn pod_snapshot(
       None
     }
   }
-  let events = match list_events_json(target) {
-    Ok(items) => {
-      if items.length() >= LIST_LIMIT {
-        notes.push("事件列表已截断至 \{LIST_LIMIT} 条")
-      }
-      items
-    }
-    Err(message) => {
-      notes.push("事件读取失败:\{message}")
-      []
-    }
-  }
+  let (events, events_status) = collect_list(
+    list_events_json(target),
+    "事件",
+    LIST_LIMIT,
+    notes,
+  )
   let logs = match pod {
     Some(raw) =>
       match first_container_name_from_json(raw) {
@@ -172,7 +166,34 @@ pub async fn pod_snapshot(
     target_kind="Pod",
     target_name=pod_name,
   )
-  { ..base, pod, events, logs, notes, }
+  { ..base, pod, events, events_status, logs, notes, }
+}
+
+///|
+/// Collect one List result into (items, status). Failures become
+/// Unavailable(reason) — never an empty array — and truncation is recorded
+/// on the status instead of being lost in notes.
+fn collect_list(
+  result : Result[Array[Json], String],
+  source_label : String,
+  list_limit : Int32,
+  notes : Array[String],
+) -> (Array[Json], @snapshot.ListStatus) {
+  match result {
+    Ok(items) =>
+      if items.length() >= list_limit {
+        notes.push("\{source_label} 列表已截断至 \{list_limit} 条")
+        (items, Truncated(items.length()))
+      } else if items.is_empty() {
+        (items, Empty)
+      } else {
+        (items, Available)
+      }
+    Err(message) => {
+      notes.push("\{source_label} 读取失败:\{message}")
+      ([], Unavailable(message))
+    }
+  }
 }
 
 ///|
@@ -187,66 +208,36 @@ pub async fn workload_snapshot(
     Err(message) => return Err(message)
   }
   let notes : Array[String] = []
-  let replicasets = match list_replicasets_json(target) {
-    Ok(items) => {
-      if items.length() >= LIST_LIMIT {
-        notes.push("ReplicaSet 列表已截断至 \{LIST_LIMIT} 条")
-      }
-      items
-    }
-    Err(message) => {
-      notes.push("ReplicaSet 读取失败:\{message}")
-      []
-    }
-  }
-  let pods = match list_pods_json(target) {
-    Ok(items) => {
-      if items.length() >= LIST_LIMIT {
-        notes.push("Pod 列表已截断至 \{LIST_LIMIT} 条")
-      }
-      items
-    }
-    Err(message) => {
-      notes.push("Pod 列表读取失败:\{message}")
-      []
-    }
-  }
-  let events = match list_events_json(target) {
-    Ok(items) => {
-      if items.length() >= LIST_LIMIT {
-        notes.push("事件列表已截断至 \{LIST_LIMIT} 条")
-      }
-      items
-    }
-    Err(message) => {
-      notes.push("事件读取失败:\{message}")
-      []
-    }
-  }
-  let quotas = match list_quotas_json(target) {
-    Ok(items) => {
-      if items.length() >= LIST_LIMIT {
-        notes.push("ResourceQuota 列表已截断至 \{LIST_LIMIT} 条")
-      }
-      items
-    }
-    Err(message) => {
-      notes.push("ResourceQuota 读取失败:\{message}")
-      []
-    }
-  }
-  let limit_ranges = match list_limit_ranges_json(target) {
-    Ok(items) => {
-      if items.length() >= LIST_LIMIT {
-        notes.push("LimitRange 列表已截断至 \{LIST_LIMIT} 条")
-      }
-      items
-    }
-    Err(message) => {
-      notes.push("LimitRange 读取失败:\{message}")
-      []
-    }
-  }
+  let (replicasets, replicasets_status) = collect_list(
+    list_replicasets_json(target),
+    "ReplicaSet",
+    LIST_LIMIT,
+    notes,
+  )
+  let (pods, pods_status) = collect_list(
+    list_pods_json(target),
+    "Pod",
+    LIST_LIMIT,
+    notes,
+  )
+  let (events, events_status) = collect_list(
+    list_events_json(target),
+    "事件",
+    LIST_LIMIT,
+    notes,
+  )
+  let (quotas, quotas_status) = collect_list(
+    list_quotas_json(target),
+    "ResourceQuota",
+    LIST_LIMIT,
+    notes,
+  )
+  let (limit_ranges, limit_ranges_status) = collect_list(
+    list_limit_ranges_json(target),
+    "LimitRange",
+    LIST_LIMIT,
+    notes,
+  )
   let base = @snapshot.ClusterSnapshot::empty(
     ns=target.ns,
     target_kind="Deployment",
@@ -260,6 +251,11 @@ pub async fn workload_snapshot(
     events,
     quotas,
     limit_ranges,
+    replicasets_status,
+    pods_status,
+    events_status,
+    quotas_status,
+    limit_ranges_status,
     notes,
   })
 }
