@@ -347,3 +347,83 @@ test "EventFact parses typed reason and involvedObject" {
   inspect(parsed.count, content="7")
   inspect(parsed.text().contains("×7"), content="true")
 }
+
+///|
+/// Fixture: unsaturated quota — used 3 of hard 10. Saturation alone gates the
+/// quota root cause; without it, only quota-mentioning evidence counts.
+const QUOTA_COMPUTE_UNSATURATED = "{\"metadata\":{\"name\":\"compute\"},\"status\":{\"hard\":{\"pods\":\"10\"},\"used\":{\"pods\":\"3\"}}}"
+
+///|
+/// Fixture: ReplicaFailure with a plain message that never mentions quota —
+/// the cause could be LimitRange, a webhook or RBAC instead.
+const REPLICASET_PLAIN_FAILURE = "{\"metadata\":{\"name\":\"payments-api-7d9f6b\",\"namespace\":\"prod\",\"uid\":\"rs-1\",\"ownerReferences\":[{\"uid\":\"dep-1\",\"kind\":\"Deployment\",\"name\":\"payments-api\"}]},\"spec\":{\"replicas\":2},\"status\":{\"readyReplicas\":0,\"conditions\":[{\"type\":\"ReplicaFailure\",\"status\":\"True\",\"reason\":\"FailedCreate\",\"message\":\"Error creating pod\"}]}}"
+
+///|
+fn finding_rule_ids(facts : @rules.WorkloadFacts) -> Array[String] {
+  let ids = []
+  for finding in @rules.run_all_workload(facts) {
+    ids.push(finding.rule_id)
+  }
+  ids
+}
+
+///|
+test "bare forbidden message does not corroborate quota_exceeded" {
+  let events = [
+    event(
+      "FailedCreate",
+      "pods \"payments-api-7d9f6b-x2k9l\" is forbidden: cannot create in namespace prod",
+      kind="ReplicaSet",
+      name="payments-api-7d9f6b",
+      count=2,
+    ),
+  ]
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_PLAIN_FAILURE),
+    @json.parse(QUOTA_COMPUTE_UNSATURATED),
+    events,
+  )
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "quota_exceeded"), content="false")
+  // The creation failure itself is still reported as a mechanism finding.
+  inspect(list_contains(ids, "replicaset_create_failed"), content="true")
+}
+
+///|
+test "ReplicaFailure without quota wording does not corroborate quota_exceeded" {
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_PLAIN_FAILURE),
+    @json.parse(QUOTA_COMPUTE_UNSATURATED),
+    [],
+  )
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "quota_exceeded"), content="false")
+  inspect(list_contains(ids, "replicaset_create_failed"), content="true")
+}
+
+///|
+test "plain FailedCreate event alone does not claim quota exhaustion" {
+  let events = [
+    event(
+      "FailedCreate",
+      "Error creating pod",
+      kind="ReplicaSet",
+      name="payments-api-7d9f6b",
+      count=1,
+    ),
+  ]
+  let facts = workload_fixture_facts(
+    @json.parse(REPLICASET_PLAIN_FAILURE),
+    @json.parse(QUOTA_COMPUTE_UNSATURATED),
+    events,
+  )
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "quota_exceeded"), content="false")
+}
+
+///|
+test "quota-mentioning ReplicaFailure still corroborates on saturated quota" {
+  let facts = quota_fixture_facts([])
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "quota_exceeded"), content="true")
+}

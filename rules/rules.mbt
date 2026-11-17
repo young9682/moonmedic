@@ -294,25 +294,23 @@ fn saturated_quota_lines(
 }
 
 ///|
-/// Corroborating creation failures: FailedCreate events mentioning quota, or
-/// a ReplicaSet ReplicaFailure condition.
+/// Corroborating creation failures for the quota root cause. Narrow by
+/// design: the evidence itself must mention quota. A bare "forbidden" or a
+/// plain FailedCreate can come from LimitRange, admission webhooks or RBAC,
+/// and must not upgrade the finding to "quota exceeded".
 fn quota_failure_evidence(facts : WorkloadFacts) -> Array[String] {
   let lines = event_evidence(facts.events, fn(event) {
     event.is_failed_create() &&
     (
       event.message.contains("exceeded quota") ||
-      event.message.contains("quota") ||
-      event.message.contains("forbidden")
+      event.message.contains("quota")
     )
   })
   for rs in facts.replicasets {
     for condition in rs.conditions {
       if condition.type_ == "ReplicaFailure" &&
         condition.status == "True" &&
-        (
-          condition.message.contains("quota") ||
-          condition.reason == "FailedCreate"
-        ) {
+        condition.message.contains("quota") {
         lines.push(
           "ReplicaSet/\{rs.name} condition ReplicaFailure(\{condition.reason}): \{condition.message}",
         )
