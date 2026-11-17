@@ -1,0 +1,1514 @@
+{
+ "ns": "moonmedic-eval-e04",
+ "target_kind": "Deployment",
+ "target_name": "broken-api",
+ "deployment": {
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+   "annotations": {
+    "deployment.kubernetes.io/revision": "1",
+    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app\":\"moonmedic-eval\"},\"name\":\"broken-api\",\"namespace\":\"moonmedic-eval-e04\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"broken-api\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"broken-api\"}},\"spec\":{\"containers\":[{\"image\":\"registry.k8s.io/pause:3.9\",\"name\":\"app\"}]}}}}\n"
+   },
+   "creationTimestamp": "2026-11-17T16:12:12Z",
+   "generation": 1,
+   "labels": {
+    "app": "moonmedic-eval"
+   },
+   "name": "broken-api",
+   "namespace": "moonmedic-eval-e04",
+   "resourceVersion": "371189465",
+   "uid": "445c37fe-0b62-4f54-99b2-678fe2d9e6e6"
+  },
+  "spec": {
+   "progressDeadlineSeconds": 600,
+   "replicas": 1,
+   "revisionHistoryLimit": 10,
+   "selector": {
+    "matchLabels": {
+     "app": "broken-api"
+    }
+   },
+   "strategy": {
+    "rollingUpdate": {
+     "maxSurge": "25%",
+     "maxUnavailable": "25%"
+    },
+    "type": "RollingUpdate"
+   },
+   "template": {
+    "metadata": {
+     "annotations": {
+      "hpc.bbt.sspu.edu.cn/created-by": "u-l2oveosike"
+     },
+     "creationTimestamp": null,
+     "labels": {
+      "app": "broken-api"
+     }
+    },
+    "spec": {
+     "containers": [
+      {
+       "env": [
+        {
+         "name": "SSL_CERT_FILE",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "REQUESTS_CA_BUNDLE",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "NODE_EXTRA_CA_CERTS",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "GIT_SSL_CAINFO",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "PIP_CERT",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "PIP_TRUSTED_HOST",
+         "value": "mirrors.bbt.sspu.edu.cn"
+        },
+        {
+         "name": "GOPROXY",
+         "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+        },
+        {
+         "name": "npm_config_cafile",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "CURL_CA_BUNDLE",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "JAVA_TOOL_OPTIONS",
+         "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+        }
+       ],
+       "image": "registry.k8s.io/pause:3.9",
+       "imagePullPolicy": "IfNotPresent",
+       "name": "app",
+       "resources": {},
+       "terminationMessagePath": "/dev/termination-log",
+       "terminationMessagePolicy": "File",
+       "volumeMounts": [
+        {
+         "mountPath": "/bbt-certs",
+         "name": "bbt-certs"
+        },
+        {
+         "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+         "name": "bbt-certs",
+         "readOnly": true,
+         "subPath": "ca-bundle.crt"
+        }
+       ]
+      }
+     ],
+     "dnsPolicy": "ClusterFirst",
+     "initContainers": [
+      {
+       "command": [
+        "sh",
+        "-c",
+        "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+       ],
+       "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+       "imagePullPolicy": "IfNotPresent",
+       "name": "bbt-ca-inject",
+       "resources": {},
+       "securityContext": {
+        "runAsUser": 0
+       },
+       "terminationMessagePath": "/dev/termination-log",
+       "terminationMessagePolicy": "File",
+       "volumeMounts": [
+        {
+         "mountPath": "/bbt-certs",
+         "name": "bbt-certs"
+        },
+        {
+         "mountPath": "/ca-in",
+         "name": "bbt-root-ca"
+        }
+       ]
+      }
+     ],
+     "restartPolicy": "Always",
+     "schedulerName": "default-scheduler",
+     "securityContext": {},
+     "terminationGracePeriodSeconds": 30,
+     "volumes": [
+      {
+       "emptyDir": {},
+       "name": "bbt-certs"
+      },
+      {
+       "configMap": {
+        "defaultMode": 420,
+        "name": "bbt-root-ca"
+       },
+       "name": "bbt-root-ca"
+      }
+     ]
+    }
+   }
+  },
+  "status": {
+   "conditions": [
+    {
+     "lastTransitionTime": "2026-11-17T16:12:12Z",
+     "lastUpdateTime": "2026-11-17T16:12:12Z",
+     "message": "Created new replica set \"broken-api-7f596c584b\"",
+     "reason": "NewReplicaSetCreated",
+     "status": "True",
+     "type": "Progressing"
+    },
+    {
+     "lastTransitionTime": "2026-11-17T16:12:12Z",
+     "lastUpdateTime": "2026-11-17T16:12:12Z",
+     "message": "Deployment does not have minimum availability.",
+     "reason": "MinimumReplicasUnavailable",
+     "status": "False",
+     "type": "Available"
+    },
+    {
+     "lastTransitionTime": "2026-11-17T16:12:12Z",
+     "lastUpdateTime": "2026-11-17T16:12:12Z",
+     "message": "pods \"broken-api-7f596c584b-q7bgl\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+     "reason": "FailedCreate",
+     "status": "True",
+     "type": "ReplicaFailure"
+    }
+   ],
+   "observedGeneration": 1,
+   "unavailableReplicas": 1
+  }
+ },
+ "replicasets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "generation": 1,
+    "labels": {
+     "app": "broken-api",
+     "pod-template-hash": "7f596c584b"
+    },
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "broken-api",
+      "uid": "445c37fe-0b62-4f54-99b2-678fe2d9e6e6"
+     }
+    ],
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "broken-api",
+      "pod-template-hash": "7f596c584b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "annotations": {
+       "hpc.bbt.sspu.edu.cn/created-by": "u-l2oveosike"
+      },
+      "creationTimestamp": null,
+      "labels": {
+       "app": "broken-api",
+       "pod-template-hash": "7f596c584b"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "env": [
+         {
+          "name": "SSL_CERT_FILE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "REQUESTS_CA_BUNDLE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "GIT_SSL_CAINFO",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "PIP_CERT",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "PIP_TRUSTED_HOST",
+          "value": "mirrors.bbt.sspu.edu.cn"
+         },
+         {
+          "name": "GOPROXY",
+          "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+         },
+         {
+          "name": "npm_config_cafile",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "CURL_CA_BUNDLE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "JAVA_TOOL_OPTIONS",
+          "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+         }
+        ],
+        "image": "registry.k8s.io/pause:3.9",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "app",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/bbt-certs",
+          "name": "bbt-certs"
+         },
+         {
+          "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+          "name": "bbt-certs",
+          "readOnly": true,
+          "subPath": "ca-bundle.crt"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "initContainers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+        ],
+        "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "bbt-ca-inject",
+        "resources": {},
+        "securityContext": {
+         "runAsUser": 0
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/bbt-certs",
+          "name": "bbt-certs"
+         },
+         {
+          "mountPath": "/ca-in",
+          "name": "bbt-root-ca"
+         }
+        ]
+       }
+      ],
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30,
+      "volumes": [
+       {
+        "emptyDir": {},
+        "name": "bbt-certs"
+       },
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "name": "bbt-root-ca"
+        },
+        "name": "bbt-root-ca"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-11-17T16:12:12Z",
+      "message": "pods \"broken-api-7f596c584b-q7bgl\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+      "reason": "FailedCreate",
+      "status": "True",
+      "type": "ReplicaFailure"
+     }
+    ],
+    "observedGeneration": 1,
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "2",
+     "deployment.kubernetes.io/max-replicas": "3",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "generation": 1,
+    "labels": {
+     "app": "good-api",
+     "pod-template-hash": "75fc6876f8"
+    },
+    "name": "good-api-75fc6876f8",
+    "namespace": "moonmedic-eval-e04",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "good-api",
+      "uid": "d222a9fd-6e73-42b9-bf87-3d78c26b00fb"
+     }
+    ],
+    "resourceVersion": "371189467",
+    "uid": "626e7d2e-81b9-428d-b29b-31999b121652"
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": {
+     "matchLabels": {
+      "app": "good-api",
+      "pod-template-hash": "75fc6876f8"
+     }
+    },
+    "template": {
+     "metadata": {
+      "annotations": {
+       "hpc.bbt.sspu.edu.cn/created-by": "u-l2oveosike"
+      },
+      "creationTimestamp": null,
+      "labels": {
+       "app": "good-api",
+       "pod-template-hash": "75fc6876f8"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "env": [
+         {
+          "name": "SSL_CERT_FILE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "REQUESTS_CA_BUNDLE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "GIT_SSL_CAINFO",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "PIP_CERT",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "PIP_TRUSTED_HOST",
+          "value": "mirrors.bbt.sspu.edu.cn"
+         },
+         {
+          "name": "GOPROXY",
+          "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+         },
+         {
+          "name": "npm_config_cafile",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "CURL_CA_BUNDLE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "JAVA_TOOL_OPTIONS",
+          "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+         }
+        ],
+        "image": "registry.k8s.io/pause:3.9",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "app",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/bbt-certs",
+          "name": "bbt-certs"
+         },
+         {
+          "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+          "name": "bbt-certs",
+          "readOnly": true,
+          "subPath": "ca-bundle.crt"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "initContainers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+        ],
+        "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "bbt-ca-inject",
+        "resources": {},
+        "securityContext": {
+         "runAsUser": 0
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/bbt-certs",
+          "name": "bbt-certs"
+         },
+         {
+          "mountPath": "/ca-in",
+          "name": "bbt-root-ca"
+         }
+        ]
+       }
+      ],
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30,
+      "volumes": [
+       {
+        "emptyDir": {},
+        "name": "bbt-certs"
+       },
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "name": "bbt-root-ca"
+        },
+        "name": "bbt-root-ca"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "fullyLabeledReplicas": 2,
+    "observedGeneration": 1,
+    "replicas": 2
+   }
+  }
+ ],
+ "pods": [
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "annotations": {
+     "hpc.bbt.sspu.edu.cn/created-by": "system:serviceaccount:kube-system:replicaset-controller"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "generateName": "good-api-75fc6876f8-",
+    "generation": 1,
+    "labels": {
+     "app": "good-api",
+     "pod-template-hash": "75fc6876f8"
+    },
+    "name": "good-api-75fc6876f8-gx5qn",
+    "namespace": "moonmedic-eval-e04",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "good-api-75fc6876f8",
+      "uid": "626e7d2e-81b9-428d-b29b-31999b121652"
+     }
+    ],
+    "resourceVersion": "371189466",
+    "uid": "7c20474d-12d5-4807-8649-355c36e764b2"
+   },
+   "spec": {
+    "containers": [
+     {
+      "env": [
+       {
+        "name": "SSL_CERT_FILE",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "REQUESTS_CA_BUNDLE",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "NODE_EXTRA_CA_CERTS",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "GIT_SSL_CAINFO",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "PIP_CERT",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "PIP_TRUSTED_HOST",
+        "value": "mirrors.bbt.sspu.edu.cn"
+       },
+       {
+        "name": "GOPROXY",
+        "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+       },
+       {
+        "name": "npm_config_cafile",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "CURL_CA_BUNDLE",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "JAVA_TOOL_OPTIONS",
+        "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+       }
+      ],
+      "image": "registry.k8s.io/pause:3.9",
+      "imagePullPolicy": "IfNotPresent",
+      "name": "app",
+      "resources": {},
+      "terminationMessagePath": "/dev/termination-log",
+      "terminationMessagePolicy": "File",
+      "volumeMounts": [
+       {
+        "mountPath": "/bbt-certs",
+        "name": "bbt-certs"
+       },
+       {
+        "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+        "name": "bbt-certs",
+        "readOnly": true,
+        "subPath": "ca-bundle.crt"
+       },
+       {
+        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+        "name": "kube-api-access-l6n2z",
+        "readOnly": true
+       }
+      ]
+     }
+    ],
+    "dnsPolicy": "ClusterFirst",
+    "enableServiceLinks": true,
+    "initContainers": [
+     {
+      "command": [
+       "sh",
+       "-c",
+       "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+      ],
+      "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+      "imagePullPolicy": "IfNotPresent",
+      "name": "bbt-ca-inject",
+      "resources": {},
+      "securityContext": {
+       "runAsUser": 0
+      },
+      "terminationMessagePath": "/dev/termination-log",
+      "terminationMessagePolicy": "File",
+      "volumeMounts": [
+       {
+        "mountPath": "/bbt-certs",
+        "name": "bbt-certs"
+       },
+       {
+        "mountPath": "/ca-in",
+        "name": "bbt-root-ca"
+       },
+       {
+        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+        "name": "kube-api-access-l6n2z",
+        "readOnly": true
+       }
+      ]
+     }
+    ],
+    "preemptionPolicy": "PreemptLowerPriority",
+    "priority": 500,
+    "priorityClassName": "hpc-job-normal",
+    "restartPolicy": "Always",
+    "schedulerName": "default-scheduler",
+    "securityContext": {},
+    "serviceAccount": "default",
+    "serviceAccountName": "default",
+    "terminationGracePeriodSeconds": 30,
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ],
+    "volumes": [
+     {
+      "emptyDir": {},
+      "name": "bbt-certs"
+     },
+     {
+      "configMap": {
+       "defaultMode": 420,
+       "name": "bbt-root-ca"
+      },
+      "name": "bbt-root-ca"
+     },
+     {
+      "name": "kube-api-access-l6n2z",
+      "projected": {
+       "defaultMode": 420,
+       "sources": [
+        {
+         "serviceAccountToken": {
+          "expirationSeconds": 3607,
+          "path": "token"
+         }
+        },
+        {
+         "configMap": {
+          "items": [
+           {
+            "key": "ca.crt",
+            "path": "ca.crt"
+           }
+          ],
+          "name": "kube-root-ca.crt"
+         }
+        },
+        {
+         "downwardAPI": {
+          "items": [
+           {
+            "fieldRef": {
+             "apiVersion": "v1",
+             "fieldPath": "metadata.namespace"
+            },
+            "path": "namespace"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "conditions": [
+     {
+      "lastProbeTime": null,
+      "lastTransitionTime": "2026-11-17T16:12:12Z",
+      "message": "running Bind plugin \"DefaultBinder\": admission webhook \"podsbinding-v1.kb.io\" denied the request: Pod \"good-api-75fc6876f8-gx5qn\" not found",
+      "reason": "SchedulerError",
+      "status": "False",
+      "type": "PodScheduled"
+     }
+    ],
+    "phase": "Pending",
+    "qosClass": "BestEffort"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "annotations": {
+     "hpc.bbt.sspu.edu.cn/created-by": "system:serviceaccount:kube-system:replicaset-controller"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "generateName": "good-api-75fc6876f8-",
+    "generation": 1,
+    "labels": {
+     "app": "good-api",
+     "pod-template-hash": "75fc6876f8"
+    },
+    "name": "good-api-75fc6876f8-jgzq2",
+    "namespace": "moonmedic-eval-e04",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "good-api-75fc6876f8",
+      "uid": "626e7d2e-81b9-428d-b29b-31999b121652"
+     }
+    ],
+    "resourceVersion": "371189440",
+    "uid": "bc5f5b3e-4e55-4361-9d8d-29ed99f33d0d"
+   },
+   "spec": {
+    "containers": [
+     {
+      "env": [
+       {
+        "name": "SSL_CERT_FILE",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "REQUESTS_CA_BUNDLE",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "NODE_EXTRA_CA_CERTS",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "GIT_SSL_CAINFO",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "PIP_CERT",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "PIP_TRUSTED_HOST",
+        "value": "mirrors.bbt.sspu.edu.cn"
+       },
+       {
+        "name": "GOPROXY",
+        "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+       },
+       {
+        "name": "npm_config_cafile",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "CURL_CA_BUNDLE",
+        "value": "/bbt-certs/ca-bundle.crt"
+       },
+       {
+        "name": "JAVA_TOOL_OPTIONS",
+        "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+       }
+      ],
+      "image": "registry.k8s.io/pause:3.9",
+      "imagePullPolicy": "IfNotPresent",
+      "name": "app",
+      "resources": {},
+      "terminationMessagePath": "/dev/termination-log",
+      "terminationMessagePolicy": "File",
+      "volumeMounts": [
+       {
+        "mountPath": "/bbt-certs",
+        "name": "bbt-certs"
+       },
+       {
+        "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+        "name": "bbt-certs",
+        "readOnly": true,
+        "subPath": "ca-bundle.crt"
+       },
+       {
+        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+        "name": "kube-api-access-pd77j",
+        "readOnly": true
+       }
+      ]
+     }
+    ],
+    "dnsPolicy": "ClusterFirst",
+    "enableServiceLinks": true,
+    "initContainers": [
+     {
+      "command": [
+       "sh",
+       "-c",
+       "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+      ],
+      "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+      "imagePullPolicy": "IfNotPresent",
+      "name": "bbt-ca-inject",
+      "resources": {},
+      "securityContext": {
+       "runAsUser": 0
+      },
+      "terminationMessagePath": "/dev/termination-log",
+      "terminationMessagePolicy": "File",
+      "volumeMounts": [
+       {
+        "mountPath": "/bbt-certs",
+        "name": "bbt-certs"
+       },
+       {
+        "mountPath": "/ca-in",
+        "name": "bbt-root-ca"
+       },
+       {
+        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+        "name": "kube-api-access-pd77j",
+        "readOnly": true
+       }
+      ]
+     }
+    ],
+    "preemptionPolicy": "PreemptLowerPriority",
+    "priority": 500,
+    "priorityClassName": "hpc-job-normal",
+    "restartPolicy": "Always",
+    "schedulerName": "default-scheduler",
+    "securityContext": {},
+    "serviceAccount": "default",
+    "serviceAccountName": "default",
+    "terminationGracePeriodSeconds": 30,
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ],
+    "volumes": [
+     {
+      "emptyDir": {},
+      "name": "bbt-certs"
+     },
+     {
+      "configMap": {
+       "defaultMode": 420,
+       "name": "bbt-root-ca"
+      },
+      "name": "bbt-root-ca"
+     },
+     {
+      "name": "kube-api-access-pd77j",
+      "projected": {
+       "defaultMode": 420,
+       "sources": [
+        {
+         "serviceAccountToken": {
+          "expirationSeconds": 3607,
+          "path": "token"
+         }
+        },
+        {
+         "configMap": {
+          "items": [
+           {
+            "key": "ca.crt",
+            "path": "ca.crt"
+           }
+          ],
+          "name": "kube-root-ca.crt"
+         }
+        },
+        {
+         "downwardAPI": {
+          "items": [
+           {
+            "fieldRef": {
+             "apiVersion": "v1",
+             "fieldPath": "metadata.namespace"
+            },
+            "path": "namespace"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "conditions": [
+     {
+      "lastProbeTime": null,
+      "lastTransitionTime": "2026-11-17T16:12:12Z",
+      "message": "running Bind plugin \"DefaultBinder\": admission webhook \"podsbinding-v1.kb.io\" denied the request: Pod \"good-api-75fc6876f8-jgzq2\" not found",
+      "reason": "SchedulerError",
+      "status": "False",
+      "type": "PodScheduled"
+     }
+    ],
+    "phase": "Pending",
+    "qosClass": "BestEffort"
+   }
+  }
+ ],
+ "events": [
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189445",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-q7bgl\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api-7f596c584b.18e8e1152618e1cc",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189468",
+    "uid": "8b9f0167-32c0-4d1e-b077-bd690b6319a3"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-9bpfk\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api-7f596c584b.18e8e1152bec67e8",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189478",
+    "uid": "89d87847-aec0-48e4-8d53-de9da69b904f"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-gccmd\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api-7f596c584b.18e8e11531e405d3",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189481",
+    "uid": "4cb5ddd6-0c91-43b5-ba46-590345d1f14f"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-7xkxn\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api-7f596c584b.18e8e11537e7d857",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189486",
+    "uid": "d679e68d-ac87-4c84-8018-1ac0e7c22435"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-7nn88\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api-7f596c584b.18e8e1153def3fde",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189493",
+    "uid": "07ddd6b5-ab09-4183-ae89-ea48896de9c5"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-vmdgb\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api-7f596c584b.18e8e11543e764d8",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189497",
+    "uid": "967abbe1-91fe-45dc-8a88-cfc47c1d3079"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:13Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:13Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-msrn9\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:13Z",
+    "name": "broken-api-7f596c584b.18e8e11549df1607",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189500",
+    "uid": "d132bccf-8613-4d6e-8be1-4695da95e6c0"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:13Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "broken-api-7f596c584b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189461",
+    "uid": "3107ea17-b5e5-4713-99fe-ff0057eee489"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:13Z",
+   "message": "Error creating: pods \"broken-api-7f596c584b-8nnc4\" is forbidden: exceeded quota: two-pods, requested: pods=1, used: pods=2, limited: pods=2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:13Z",
+    "name": "broken-api-7f596c584b.18e8e1154fdd0c2d",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189504",
+    "uid": "d8fb2f16-93be-4578-9b0f-fd1ce03896ca"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "broken-api",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189444",
+    "uid": "445c37fe-0b62-4f54-99b2-678fe2d9e6e6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Scaled up replica set broken-api-7f596c584b from 0 to 1",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "broken-api.18e8e1152142845b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189449",
+    "uid": "f6063819-4963-4c8b-9469-e9157fee58f7"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "action": "Scheduling",
+   "apiVersion": "v1",
+   "eventTime": "2026-11-17T16:12:12.460386Z",
+   "firstTimestamp": null,
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "good-api-75fc6876f8-gx5qn",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189459",
+    "uid": "7c20474d-12d5-4807-8649-355c36e764b2"
+   },
+   "kind": "Event",
+   "lastTimestamp": null,
+   "message": "running Bind plugin \"DefaultBinder\": admission webhook \"podsbinding-v1.kb.io\" denied the request: Pod \"good-api-75fc6876f8-gx5qn\" not found",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "0"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "good-api-75fc6876f8-gx5qn.18e8e115264e93cd",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189470",
+    "uid": "00ad511d-0faa-4733-9b62-36eb171eaad5"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "default-scheduler-n1",
+   "source": {},
+   "type": "Warning"
+  },
+  {
+   "action": "Scheduling",
+   "apiVersion": "v1",
+   "eventTime": "2026-11-17T16:12:12.359036Z",
+   "firstTimestamp": null,
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "good-api-75fc6876f8-jgzq2",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189437",
+    "uid": "bc5f5b3e-4e55-4361-9d8d-29ed99f33d0d"
+   },
+   "kind": "Event",
+   "lastTimestamp": null,
+   "message": "running Bind plugin \"DefaultBinder\": admission webhook \"podsbinding-v1.kb.io\" denied the request: Pod \"good-api-75fc6876f8-jgzq2\" not found",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "0"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "good-api-75fc6876f8-jgzq2.18e8e11520441594",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189443",
+    "uid": "7a6f614d-48e5-44f2-9bf0-aa0ef6bb4e85"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "default-scheduler-n1",
+   "source": {},
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "good-api-75fc6876f8",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189424",
+    "uid": "626e7d2e-81b9-428d-b29b-31999b121652"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Created pod: good-api-75fc6876f8-jgzq2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "good-api-75fc6876f8.18e8e11520188891",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189441",
+    "uid": "ee292798-cb0e-4263-8bc0-ba058c7c11da"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "good-api-75fc6876f8",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189424",
+    "uid": "626e7d2e-81b9-428d-b29b-31999b121652"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Created pod: good-api-75fc6876f8-gx5qn",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "good-api-75fc6876f8.18e8e11526276151",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189469",
+    "uid": "9fd05138-c74e-4a7b-8707-87efbe55cc19"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:12:12Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "good-api",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189422",
+    "uid": "d222a9fd-6e73-42b9-bf87-3d78c26b00fb"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:12:12Z",
+   "message": "Scaled up replica set good-api-75fc6876f8 from 0 to 2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "good-api.18e8e1151b40718b",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189430",
+    "uid": "e8278bab-69ff-484e-9b99-2a7516433bcb"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  }
+ ],
+ "quotas": [
+  {
+   "apiVersion": "v1",
+   "kind": "ResourceQuota",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"ResourceQuota\",\"metadata\":{\"annotations\":{},\"name\":\"two-pods\",\"namespace\":\"moonmedic-eval-e04\"},\"spec\":{\"hard\":{\"pods\":\"2\"}}}\n"
+    },
+    "creationTimestamp": "2026-11-17T16:12:12Z",
+    "name": "two-pods",
+    "namespace": "moonmedic-eval-e04",
+    "resourceVersion": "371189458",
+    "uid": "0366d7d9-14ce-4ad8-b837-8b23fd3692a0"
+   },
+   "spec": {
+    "hard": {
+     "pods": "2"
+    }
+   },
+   "status": {
+    "hard": {
+     "pods": "2"
+    },
+    "used": {
+     "pods": "2"
+    }
+   }
+  }
+ ],
+ "limit_ranges": [],
+ "data_status": {
+  "replicasets": {
+   "state": "available"
+  },
+  "pods": {
+   "state": "available"
+  },
+  "events": {
+   "state": "available"
+  },
+  "quotas": {
+   "state": "available"
+  },
+  "limit_ranges": {
+   "state": "available"
+  }
+ },
+ "notes": []
+}

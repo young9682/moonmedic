@@ -1,0 +1,4 @@
+{
+  "expect_rule_ids": ["insufficient_evidence"],
+  "forbid_rule_ids": ["workload_no_pods"]
+}

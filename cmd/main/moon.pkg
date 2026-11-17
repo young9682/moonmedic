@@ -1,10 +1,14 @@
 import {
+  "young9682/moonmedic/core",
   "young9682/moonmedic/llm",
   "young9682/moonmedic/medic",
   "young9682/moonmedic/report",
+  "young9682/moonmedic/snapshot",
   "young9682/moonmedic/tools",
   "moonbitlang/async",
+  "moonbitlang/async/fs",
   "moonbitlang/core/env",
+  "moonbitlang/core/json",
 }
 
 supported_targets = "native"

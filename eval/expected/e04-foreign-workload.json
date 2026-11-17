@@ -1,0 +1,5 @@
+{
+  "expect_rule_ids": ["quota_exceeded", "workload_no_pods"],
+  "forbid_rule_ids": ["insufficient_evidence"],
+  "evidence_contains": ["Pods owned by them = 0"]
+}

@@ -29,8 +29,10 @@ async fn main {
   let mut kind = "Pod"
   let mut json = false
   let mut use_agent = false
+  let mut snapshot_file : String? = None
   let operands : Array[String] = []
-  for i in 1..<args.length() {
+  let mut i = 1
+  while i < args.length() {
     let arg = args[i]
     if arg == "--deployment" || arg == "--workload" {
       kind = "Deployment"
@@ -40,9 +42,46 @@ async fn main {
       json = true
     } else if arg == "--agent" {
       use_agent = true
+    } else if arg == "--snapshot" && i + 1 < args.length() {
+      // Offline replay: diagnose a recorded ClusterSnapshot JSON file with
+      // no cluster, no network and no LLM. Used by the eval harness.
+      snapshot_file = Some(args[i + 1])
+      i = i + 1
     } else {
       operands.push(arg)
     }
+    i = i + 1
+  }
+  match snapshot_file {
+    Some(path) => {
+      let text = @fs.read_file(path).text() catch {
+        _ => {
+          println("无法读取 snapshot 文件:\{path}")
+          return
+        }
+      }
+      let parsed = @json.parse(text) catch {
+        _ => {
+          println("snapshot 文件不是有效 JSON:\{path}")
+          return
+        }
+      }
+      let snapshot = match @snapshot.ClusterSnapshot::from_json(parsed) {
+        Ok(snapshot) => snapshot
+        Err(message) => {
+          println("snapshot 解析失败:\{message}")
+          return
+        }
+      }
+      let result = @core.diagnose(snapshot)
+      if json {
+        println(@report.render_json(result.diagnosis))
+      } else {
+        println(@report.render_markdown(result.diagnosis))
+      }
+      return
+    }
+    None => ()
   }
   if operands.length() >= 1 {
     let ns = if operands.length() >= 2 {

@@ -1,0 +1,809 @@
+{
+ "ns": "moonmedic-eval-e03",
+ "target_kind": "Deployment",
+ "target_name": "payments-api",
+ "deployment": {
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+   "annotations": {
+    "deployment.kubernetes.io/revision": "1",
+    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app\":\"moonmedic-eval\"},\"name\":\"payments-api\",\"namespace\":\"moonmedic-eval-e03\"},\"spec\":{\"replicas\":2,\"selector\":{\"matchLabels\":{\"app\":\"payments-api\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"payments-api\"}},\"spec\":{\"containers\":[{\"image\":\"registry.k8s.io/pause:3.9\",\"name\":\"app\",\"resources\":{\"limits\":{\"memory\":\"256Mi\"}}}]}}}}\n"
+   },
+   "creationTimestamp": "2026-11-17T16:09:35Z",
+   "generation": 1,
+   "labels": {
+    "app": "moonmedic-eval"
+   },
+   "name": "payments-api",
+   "namespace": "moonmedic-eval-e03",
+   "resourceVersion": "371185416",
+   "uid": "6675dc71-b06a-442d-a0a6-1460c088648a"
+  },
+  "spec": {
+   "progressDeadlineSeconds": 600,
+   "replicas": 2,
+   "revisionHistoryLimit": 10,
+   "selector": {
+    "matchLabels": {
+     "app": "payments-api"
+    }
+   },
+   "strategy": {
+    "rollingUpdate": {
+     "maxSurge": "25%",
+     "maxUnavailable": "25%"
+    },
+    "type": "RollingUpdate"
+   },
+   "template": {
+    "metadata": {
+     "annotations": {
+      "hpc.bbt.sspu.edu.cn/created-by": "u-l2oveosike"
+     },
+     "creationTimestamp": null,
+     "labels": {
+      "app": "payments-api"
+     }
+    },
+    "spec": {
+     "containers": [
+      {
+       "env": [
+        {
+         "name": "SSL_CERT_FILE",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "REQUESTS_CA_BUNDLE",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "NODE_EXTRA_CA_CERTS",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "GIT_SSL_CAINFO",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "PIP_CERT",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "PIP_TRUSTED_HOST",
+         "value": "mirrors.bbt.sspu.edu.cn"
+        },
+        {
+         "name": "GOPROXY",
+         "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+        },
+        {
+         "name": "npm_config_cafile",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "CURL_CA_BUNDLE",
+         "value": "/bbt-certs/ca-bundle.crt"
+        },
+        {
+         "name": "JAVA_TOOL_OPTIONS",
+         "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+        }
+       ],
+       "image": "registry.k8s.io/pause:3.9",
+       "imagePullPolicy": "IfNotPresent",
+       "name": "app",
+       "resources": {
+        "limits": {
+         "memory": "256Mi"
+        }
+       },
+       "terminationMessagePath": "/dev/termination-log",
+       "terminationMessagePolicy": "File",
+       "volumeMounts": [
+        {
+         "mountPath": "/bbt-certs",
+         "name": "bbt-certs"
+        },
+        {
+         "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+         "name": "bbt-certs",
+         "readOnly": true,
+         "subPath": "ca-bundle.crt"
+        }
+       ]
+      }
+     ],
+     "dnsPolicy": "ClusterFirst",
+     "initContainers": [
+      {
+       "command": [
+        "sh",
+        "-c",
+        "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+       ],
+       "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+       "imagePullPolicy": "IfNotPresent",
+       "name": "bbt-ca-inject",
+       "resources": {},
+       "securityContext": {
+        "runAsUser": 0
+       },
+       "terminationMessagePath": "/dev/termination-log",
+       "terminationMessagePolicy": "File",
+       "volumeMounts": [
+        {
+         "mountPath": "/bbt-certs",
+         "name": "bbt-certs"
+        },
+        {
+         "mountPath": "/ca-in",
+         "name": "bbt-root-ca"
+        }
+       ]
+      }
+     ],
+     "restartPolicy": "Always",
+     "schedulerName": "default-scheduler",
+     "securityContext": {},
+     "terminationGracePeriodSeconds": 30,
+     "volumes": [
+      {
+       "emptyDir": {},
+       "name": "bbt-certs"
+      },
+      {
+       "configMap": {
+        "defaultMode": 420,
+        "name": "bbt-root-ca"
+       },
+       "name": "bbt-root-ca"
+      }
+     ]
+    }
+   }
+  },
+  "status": {
+   "conditions": [
+    {
+     "lastTransitionTime": "2026-11-17T16:09:35Z",
+     "lastUpdateTime": "2026-11-17T16:09:35Z",
+     "message": "Created new replica set \"payments-api-f9d8df98d\"",
+     "reason": "NewReplicaSetCreated",
+     "status": "True",
+     "type": "Progressing"
+    },
+    {
+     "lastTransitionTime": "2026-11-17T16:09:35Z",
+     "lastUpdateTime": "2026-11-17T16:09:35Z",
+     "message": "Deployment does not have minimum availability.",
+     "reason": "MinimumReplicasUnavailable",
+     "status": "False",
+     "type": "Available"
+    },
+    {
+     "lastTransitionTime": "2026-11-17T16:09:35Z",
+     "lastUpdateTime": "2026-11-17T16:09:35Z",
+     "message": "pods \"payments-api-f9d8df98d-gpwwh\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+     "reason": "FailedCreate",
+     "status": "True",
+     "type": "ReplicaFailure"
+    }
+   ],
+   "observedGeneration": 1,
+   "unavailableReplicas": 2
+  }
+ },
+ "replicasets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "2",
+     "deployment.kubernetes.io/max-replicas": "3",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "generation": 1,
+    "labels": {
+     "app": "payments-api",
+     "pod-template-hash": "f9d8df98d"
+    },
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "payments-api",
+      "uid": "6675dc71-b06a-442d-a0a6-1460c088648a"
+     }
+    ],
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": {
+     "matchLabels": {
+      "app": "payments-api",
+      "pod-template-hash": "f9d8df98d"
+     }
+    },
+    "template": {
+     "metadata": {
+      "annotations": {
+       "hpc.bbt.sspu.edu.cn/created-by": "u-l2oveosike"
+      },
+      "creationTimestamp": null,
+      "labels": {
+       "app": "payments-api",
+       "pod-template-hash": "f9d8df98d"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "env": [
+         {
+          "name": "SSL_CERT_FILE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "REQUESTS_CA_BUNDLE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "GIT_SSL_CAINFO",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "PIP_CERT",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "PIP_TRUSTED_HOST",
+          "value": "mirrors.bbt.sspu.edu.cn"
+         },
+         {
+          "name": "GOPROXY",
+          "value": "http://mirrors.bbt.sspu.edu.cn/repository/go"
+         },
+         {
+          "name": "npm_config_cafile",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "CURL_CA_BUNDLE",
+          "value": "/bbt-certs/ca-bundle.crt"
+         },
+         {
+          "name": "JAVA_TOOL_OPTIONS",
+          "value": "-Djavax.net.ssl.trustStore=/bbt-certs/java-cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+         }
+        ],
+        "image": "registry.k8s.io/pause:3.9",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "app",
+        "resources": {
+         "limits": {
+          "memory": "256Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/bbt-certs",
+          "name": "bbt-certs"
+         },
+         {
+          "mountPath": "/usr/local/share/ca-certificates/bbt-ca-bundle.crt",
+          "name": "bbt-certs",
+          "readOnly": true,
+          "subPath": "ca-bundle.crt"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "initContainers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "set -e\ncp /ca-in/roots.pem /bbt-certs/bbt-root-ca.crt\nchmod 644 /bbt-certs/bbt-root-ca.crt\n\n# Try to ensure system CA certificates are present for common distros\nif command -v apt-get >/dev/null 2>&1; then\n    timeout 20 apt-get update >/dev/null 2>&1 && timeout 20 apt-get install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v apk >/dev/null 2>&1; then\n    timeout 20 apk add --no-cache ca-certificates >/dev/null 2>&1 || true\nelif command -v dnf >/dev/null 2>&1; then\n    timeout 20 dnf install -y ca-certificates >/dev/null 2>&1 || true\nelif command -v yum >/dev/null 2>&1; then\n    timeout 20 yum install -y ca-certificates >/dev/null 2>&1 || true\nfi\n\nif [ -f /etc/ssl/certs/ca-certificates.crt ]; then\n    cp /etc/ssl/certs/ca-certificates.crt /bbt-certs/ca-bundle.crt\nelif [ -f /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then\n    cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /bbt-certs/ca-bundle.crt\nelse\n    cp /bbt-certs/bbt-root-ca.crt /bbt-certs/ca-bundle.crt\nfi\ncat /bbt-certs/bbt-root-ca.crt >> /bbt-certs/ca-bundle.crt\n\n# Generate Java truststore if keytool is available\nif command -v keytool >/dev/null 2>&1 && [ -f /bbt-certs/bbt-root-ca.crt ]; then\n    for cacerts_path in /etc/ssl/certs/java/cacerts /usr/lib/jvm/default-jvm/lib/security/cacerts /usr/lib/jvm/*/lib/security/cacerts /opt/java/*/lib/security/cacerts /opt/*/lib/security/cacerts; do\n        if [ -f \"$cacerts_path\" ]; then\n            cp \"$cacerts_path\" /bbt-certs/java-cacerts\n            keytool -importcert -keystore /bbt-certs/java-cacerts -storepass changeit -alias bbt-root-ca -file /bbt-certs/bbt-root-ca.crt -noprompt >/dev/null 2>&1 || true\n            break\n        fi\n    done\nfi\n"
+        ],
+        "image": "harbor.bbt.sspu.edu.cn/dockerhub/library/eclipse-temurin:17-jre",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "bbt-ca-inject",
+        "resources": {},
+        "securityContext": {
+         "runAsUser": 0
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/bbt-certs",
+          "name": "bbt-certs"
+         },
+         {
+          "mountPath": "/ca-in",
+          "name": "bbt-root-ca"
+         }
+        ]
+       }
+      ],
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30,
+      "volumes": [
+       {
+        "emptyDir": {},
+        "name": "bbt-certs"
+       },
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "name": "bbt-root-ca"
+        },
+        "name": "bbt-root-ca"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-11-17T16:09:35Z",
+      "message": "pods \"payments-api-f9d8df98d-gpwwh\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+      "reason": "FailedCreate",
+      "status": "True",
+      "type": "ReplicaFailure"
+     }
+    ],
+    "observedGeneration": 1,
+    "replicas": 0
+   }
+  }
+ ],
+ "pods": [],
+ "events": [
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185406",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:35Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-gpwwh\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0a1483037",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185417",
+    "uid": "e351ac96-cf16-4ad3-9fa7-7507d7590b46"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:35Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-vj86g\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0a784241a",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185422",
+    "uid": "58327a37-e1df-4647-a3e8-8388531931b5"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:35Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-ld862\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0ad901e08",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185426",
+    "uid": "516e6df0-8d7c-416e-8cd2-5713f263c5f7"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:35Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-54zr6\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0b352ea4f",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185428",
+    "uid": "17e51443-62fa-43ee-b03d-8c413bd614a2"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:36Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:36Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-g7hv6\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:36Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0b949eee3",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185439",
+    "uid": "cce11852-4f9a-4714-b2bc-5cb865dcd5d0"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:36Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:36Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-94bg2\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:36Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0bf4547ab",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185447",
+    "uid": "9fe56f27-77d0-433d-9c2e-2332658f7c4d"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:36Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:36Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-lg4vk\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:36Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0c535c83f",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185467",
+    "uid": "bf98d714-8869-4750-ba6a-3f4475cfff9d"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:36Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:36Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-kfgbm\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:36Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0cb5f0af4",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185474",
+    "uid": "491da06c-23f6-4067-89c4-d693f4fe4f60"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:36Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:36Z",
+   "message": "Error creating: pods \"payments-api-f9d8df98d-lp7d8\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:36Z",
+    "name": "payments-api-f9d8df98d.18e8e0f0f2dfa28c",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185490",
+    "uid": "99743c13-b518-4290-a575-92c05240cf50"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 6,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:38Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "payments-api-f9d8df98d",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185415",
+    "uid": "3f0cf8de-89e0-4e19-bd28-cba0eef30c70"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:10:57Z",
+   "message": "(combined from similar events): Error creating: pods \"payments-api-f9d8df98d-g46k4\" is forbidden: maximum memory usage per Container is 64Mi, but limit is 256Mi",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "6"
+    },
+    "creationTimestamp": "2026-11-17T16:09:38Z",
+    "name": "payments-api-f9d8df98d.18e8e0f1423980e2",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371187507",
+    "uid": "8e7d82e7-c8be-4769-911c-8109d1c48c67"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-11-17T16:09:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "payments-api",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185403",
+    "uid": "6675dc71-b06a-442d-a0a6-1460c088648a"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-11-17T16:09:35Z",
+   "message": "Scaled up replica set payments-api-f9d8df98d from 0 to 2",
+   "metadata": {
+    "annotations": {
+     "kubeblocks.io/event-handled": "1"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "name": "payments-api.18e8e0f0a00fbfe1",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185411",
+    "uid": "5741ea4f-e94a-4a38-809c-418134281d22"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  }
+ ],
+ "quotas": [],
+ "limit_ranges": [
+  {
+   "apiVersion": "v1",
+   "kind": "LimitRange",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"LimitRange\",\"metadata\":{\"annotations\":{},\"name\":\"mem-max-64mi\",\"namespace\":\"moonmedic-eval-e03\"},\"spec\":{\"limits\":[{\"max\":{\"memory\":\"64Mi\"},\"type\":\"Container\"}]}}\n"
+    },
+    "creationTimestamp": "2026-11-17T16:09:35Z",
+    "name": "mem-max-64mi",
+    "namespace": "moonmedic-eval-e03",
+    "resourceVersion": "371185396",
+    "uid": "672a0400-a8bc-46aa-99ee-0ea3f52f7b94"
+   },
+   "spec": {
+    "limits": [
+     {
+      "default": {
+       "memory": "64Mi"
+      },
+      "defaultRequest": {
+       "memory": "64Mi"
+      },
+      "max": {
+       "memory": "64Mi"
+      },
+      "type": "Container"
+     }
+    ]
+   }
+  }
+ ],
+ "data_status": {
+  "replicasets": {
+   "state": "available"
+  },
+  "pods": {
+   "state": "available"
+  },
+  "events": {
+   "state": "available"
+  },
+  "quotas": {
+   "state": "available"
+  },
+  "limit_ranges": {
+   "state": "available"
+  }
+ },
+ "notes": []
+}

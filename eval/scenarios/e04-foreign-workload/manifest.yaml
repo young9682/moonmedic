@@ -1,0 +1,58 @@
+# E04: 同 namespace 里既有故障工作负载(broken-api,被配额挡住)又有健康工作负载
+# (good-api,2 个 Running Pod)—— 验证归属隔离:目标(broken-api)的 Pod 计数不得被
+# 健康工作负载污染
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: moonmedic-eval-e04
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: two-pods
+  namespace: moonmedic-eval-e04
+spec:
+  hard:
+    pods: "2"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: good-api
+  namespace: moonmedic-eval-e04
+  labels:
+    app: moonmedic-eval
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: good-api
+  template:
+    metadata:
+      labels:
+        app: good-api
+    spec:
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.9
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-api
+  namespace: moonmedic-eval-e04
+  labels:
+    app: moonmedic-eval
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broken-api
+  template:
+    metadata:
+      labels:
+        app: broken-api
+    spec:
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.9
