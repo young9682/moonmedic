@@ -1,0 +1,58 @@
+{
+  "ns": "evaluation",
+  "target_kind": "Deployment",
+  "target_name": "payments-api",
+  "deployment": {
+    "metadata": {
+      "name": "payments-api",
+      "namespace": "evaluation",
+      "uid": "deployment-1"
+    },
+    "spec": {
+      "replicas": 2
+    }
+  },
+  "replicasets": [
+    {
+      "metadata": {
+        "name": "payments-api-demo",
+        "namespace": "evaluation",
+        "uid": "rs-1",
+        "ownerReferences": [
+          {
+            "uid": "deployment-1",
+            "kind": "Deployment",
+            "name": "payments-api"
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 2
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "ReplicaFailure",
+            "status": "True",
+            "reason": "FailedCreate",
+            "message": "pods \"payments-api-demo-x\" is forbidden: spec.template: Invalid value: unsupported field value"
+          }
+        ]
+      }
+    }
+  ],
+  "pods": [],
+  "events": [
+    {
+      "type": "Warning",
+      "reason": "FailedCreate",
+      "message": "Error creating: pods \"payments-api-demo-x\" is forbidden: spec.template: Invalid value: unsupported field value",
+      "involvedObject": {
+        "kind": "ReplicaSet",
+        "name": "payments-api-demo",
+        "uid": "rs-1"
+      }
+    }
+  ],
+  "quotas": []
+}

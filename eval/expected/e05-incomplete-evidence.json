@@ -1,4 +1,11 @@
 {
   "expect_rule_ids": ["insufficient_evidence"],
-  "forbid_rule_ids": ["workload_no_pods"]
+  "forbid_rule_ids": ["workload_no_pods"],
+  "expect_findings": {
+    "insufficient_evidence": {"layer": "insufficient"},
+    "quota_exceeded": {
+      "layer": "root_cause",
+      "forbid_detail_contains": ["还差", "hard ≥"]
+    }
+  }
 }
