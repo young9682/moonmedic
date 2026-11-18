@@ -35,13 +35,15 @@ E01 至 E04 是此前在 RKE2 注入后由 kubectl 采集的快照。E05 派生�
 
 ## 外部基线
 
-外部能力来自官方资料。表中 moonmedic 的输出来自本轮回放。外部工具在相同场景下的覆盖率、延迟及人工操作量仍待实测。
+2026-11-18 用 E01、E02、R01–R04 共六份快照执行 CLI 对照。三款外部工具访问同一套快照提供的回环 Kubernetes API。E01 和 E02 源自 RKE2 采集，其余四份为离线反例。HolmesGPT 分别使用模型自拟查询和固定字段投影。逐场景结果、版本、提示词和复现命令见[实测报告](../eval/BASELINES.md)，原输出和读取轨迹见[记录](../eval/results/baselines-2026-11-18.json)。
 
-| 工具 | 官方能力或本轮实测 | 对照维度 |
+| 工具 | 本轮实测 | 与项目关联的结果 |
 |---|---|---|
-| kubectl | `describe` 展示资源详情和相关事件。评测集通过 `get -o json` 获取原始快照数据。[官方命令文档](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_describe/) | 多对象原始取证与人工核对 |
-| K8sGPT | 资源分析器可以关闭 AI 解释，也支持按资源过滤。[官方文档](https://docs.k8sgpt.ai/reference/cli/serve-mode/) | 同一 Deployment 的分析器结果与关闭模型解释时的输出 |
-| HolmesGPT | 提供 Kubernetes 调查工具，并公开持续运行的评测与结果。[Kubernetes 工具](https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes/) · [官方评测](https://holmesgpt.dev/latest/development/evaluations/) | 同类证据能否保留及基准覆盖 |
-| moonmedic | E01、E02 回放验证配额差额和证据字段。R01 至 R04 验证拒绝分流及弃权。 | MoonBit 可复用快照与证据接口、固定输入的离线可验证输出 |
+| kubectl v1.33.0 | E01 列表为空，E02 列出 1 个 Pod。六个场景均可读出控制器事件和配额现状。 | 可由操作者交叉核对，其中 R04 的同名异资源与异名同资源差异可直接从表中看到。[官方命令文档](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_describe/) |
+| K8sGPT v0.4.41 | Pod、ReplicaSet、Deployment 分析器在六个场景均保留控制器拒绝。E02 报告 0 个可用副本。 | 本配置的请求未读取当前 ResourceQuota，结果未提供已创建副本对应的配额差额。[官方项目](https://github.com/k8sgpt-ai/k8sgpt) |
+| HolmesGPT 0.46.0 + Qwen3-4B | 自拟查询在 E02 漏掉证据。固定投影后核实了 E01 零 Pod 与 E02 唯一 Pending Pod。R03 识别 Webhook。 | 固定投影轮的 E01 给出 `hard ≥2`，E02 给出定性建议。R04 两轮都将历史拒绝中的 `compute/pods=10/10` 当作当前配额限制。[官方工具文档](https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes/) |
+| moonmedic | E01 差 2 个，E02 差 1 个。R01–R03 保留原始拒绝及对应诊断边界。R04 保留拒绝，省略当前数值佐证与差额。 | MoonBit 快照接口和字段证据使配额、资源、归属计数与差额可离线复核。 |
+
+本轮对照支持两个可检查的增量。E02 展示对照已创建 Pod 计数后的差额计算。R04 展示在保留超限记录的同时，对不匹配的当前配额状态弃权。模型结果限定于指定版本、模型与提示词。
 
 作者：young86

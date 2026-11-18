@@ -39,3 +39,5 @@ bash eval/scripts/run-all.sh     # 离线回放 + 断言(不需要集群)
 ## 指标口径
 
 本轮单测 53/53，离线回放 9/9。场景来源为真实采集 4 份、完整性派生 1 份、复查反例 4 份。`results/` 保存早期回放输出，当前结果以重跑断言为准。
+
+[外部工具实测](BASELINES.md)使用 E01、E02 和 R01–R04 的同一组快照，记录 kubectl、K8sGPT、HolmesGPT 与 moonmedic 的输出和读取轨迹。
