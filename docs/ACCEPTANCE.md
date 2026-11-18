@@ -16,7 +16,7 @@ moon run cmd/main -- --snapshot eval/fixtures/e01-quota-zero-pods.snapshot.json 
 |---|---|
 | 工程深度与实现强度 | E01、E02 分别验证零副本与部分副本。E05 模拟 Pods 读取失败。实时取证入口为 `--deployment`。 |
 | 技术贡献与攻关 | MoonBit 的类型化拒绝分类、UID 归属、列表完整性和配额数值关联。配额名称、受限资源和副本差额都有可查的字段证据。 |
-| 生态增量 | 可复用的快照、结构化诊断和 JSON 回放。kubectl、K8sGPT 与 HolmesGPT 的官方能力及同场景实测边界见[基线表](PROPOSAL.md#外部基线)。 |
+| 生态增量 | kubectl、K8sGPT、HolmesGPT 和 moonmedic 完成六场景同输入对照。E02 验证缺失副本差额，R04 验证当前配额佐证的边界。见[实测报告](../eval/BASELINES.md)。 |
 | 开发与验证能力 | 53 个单测、9 个离线场景。GitHub Actions 执行格式、类型、依赖边界、单测及场景回放。R01 至 R04 固化本轮复查发现的误报。 |
 
 [场景来源与复现](../eval/README.md) · [CI 定义](../.github/workflows/ci.yml) · [历史真实集群及 LLM 实测](E2E-REAL-LLM.md)

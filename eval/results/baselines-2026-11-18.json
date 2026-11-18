@@ -1,0 +1,1046 @@
+{
+  "date": "2026-11-18",
+  "author": "young86",
+  "scope": "loopback snapshot replay",
+  "versions": {
+    "kubectl": "v1.33.0",
+    "k8sgpt": "v0.4.41 (3644ecf), no model explanation",
+    "holmesgpt": "0.46.0",
+    "jq": "1.8.1",
+    "llama.cpp": "b12499 / 401563f10 / CUDA",
+    "model": "Qwen3-4B-Instruct-2507 Q4_K_M",
+    "moonmedic": "8f6d274"
+  },
+  "runs": {
+    "e01-quota-zero-pods": {
+      "fixture_sha256": "7117753a284df883efd1c6196bdb3ff070371339cd8479871ac00ad7d694adf6",
+      "namespace": "moonmedic-eval-e01",
+      "deployment": "payments-api",
+      "kubectl": {
+        "pod_list": [],
+        "replicaset": [
+          "Replicas:       0 current / 2 desired",
+          "ReplicaFailure   True    FailedCreate"
+        ],
+        "quota": "Name:       zero-pods\nNamespace:  moonmedic-eval-e01\nResource    Used  Hard\n--------    ----  ----\npods        0     0",
+        "failed_create_event": "Error creating: pods \"payments-api-6fc486c7dd-ccqrz\" is forbidden: exceeded quota: zero-pods, requested: pods=1, used: pods=0, limited: pods=0"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "findings": [
+          {
+            "kind": "Deployment",
+            "errors": [
+              "Deployment moonmedic-eval-e01/payments-api has 2 replicas but 0 are available with status running"
+            ]
+          },
+          {
+            "kind": "ReplicaSet",
+            "errors": [
+              "pods \"payments-api-6fc486c7dd-ccqrz\" is forbidden: exceeded quota: zero-pods, requested: pods=1, used: pods=0, limited: pods=0"
+            ]
+          }
+        ],
+        "namespace_reads": [
+          "GET /api/v1/namespaces/moonmedic-eval-e01 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/pods -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/deployments -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/replicasets -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/deployments/payments-api -> 200"
+        ]
+      },
+      "holmes_model_queries": {
+        "answer": "The `payments-api` deployment in namespace `moonmedic-eval-e01` failed to create pods due to quota enforcement. ResourceQuota `zero-pods` limits pods to 0, but the deployment requested 2 replicas. Events show repeated \"FailedCreate\" for pods like `payments-api-6fc486c7dd-ccqrz`, all citing \"exceeded quota: zero-pods\". The quota's hard limit is 0 pods, used: 0, requested: 1 per pod. No deployments, replicasets, or pods were found in the namespace, indicating the deployment may be in a failed state or not fully deployed. The root cause is a misconfigured ResourceQuota limiting pod creation. To fix, either increase the quota or adjust the deployment's replica count.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/replicasets?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/resourcequotas?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/pods?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/events?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message, owner: .metadata.ownerReferences[].name}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): Cannot iterate over null (null)"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, resource: .spec.hard, used: .status.usage, hard: .spec.hard, quotaIncrease: .status.usage | .[\"pods\"] | . - .status.usage | .[\"pods\"] | .}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): null (null) and null (null) cannot be subtracted"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message, owner: .metadata.ownerReferences[].name}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, phase: .status.phase, containerStatuses: .status.containerStatuses, creationFailure: .status.conditions[] | select(.type == \"Failed\") | .message, node: .spec.nodeName, owner: .metadata.ownerReferences[].name}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | {message: .message, type: .type, reason: .reason, involvedObject: .involvedObject.name, involvedObjectKind: .involvedObject.kind, source: .source.component, firstTimestamp: .firstTimestamp}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 10,
+            "matches": 10,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace moonmedic-eval-e01. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words.",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "holmes_fixed_queries": {
+        "answer": "Deployment `payments-api` in namespace `moonmedic-eval-e01` has `desired=2` replicas but no available pods.  \n\n**Root cause**: Resource quota `zero-pods` limits pods to 0. All attempts to create pods (e.g., `payments-api-6fc486c7dd-ccqrz`) fail with:  \n`exceeded quota: zero-pods, requested: pods=1, used: pods=0, limited: pods=0`.  \n\n**Evidence**:  \n- ReplicaSet `payments-api-6fc486c7dd` has a `ReplicaFailure` condition with `FailedCreate` reason.  \n- No pods exist (0 matches in pod query).  \n\n**Conclusion**: The deployment cannot scale due to a quota restriction. The quota `zero-pods` explicitly blocks pod creation.  \n\n**Fix**: Increase the `pods` limit in `zero-pods` quota to at least 2, or remove the quota.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/resourcequotas?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/events?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e01/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e01/pods?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 10,
+            "matches": 9,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}'' (namespace=moonmedic-eval-e01, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace moonmedic-eval-e01. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words. For a controlled acquisition check use namespace moonmedic-eval-e01 for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "moonmedic": [
+        {
+          "rule_id": "quota_exceeded",
+          "layer": "root_cause",
+          "detail": "快照中的同名配额及同一资源项仍满足 used + requested > hard。按当前用量与缺失副本估算，ResourceQuota/zero-pods 的 pods 配额还差 2 个，需 hard ≥2。",
+          "confidence": 0.98,
+          "quota_refs": [
+            {
+              "source": "resourcequota",
+              "resource_kind": "ResourceQuota",
+              "object_name": "zero-pods",
+              "field_path": "status.used.pods",
+              "observed_value": "0"
+            },
+            {
+              "source": "resourcequota",
+              "resource_kind": "ResourceQuota",
+              "object_name": "zero-pods",
+              "field_path": "status.hard.pods",
+              "observed_value": "0"
+            }
+          ]
+        },
+        {
+          "rule_id": "replicaset_create_failed",
+          "layer": "mechanism",
+          "detail": "ReplicaSet 报告 FailedCreate。请结合报告中的配额或 LimitRange 证据定位。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "workload_no_pods",
+          "layer": "symptom",
+          "detail": "控制器期望 2 个副本,但其 ReplicaSet 下没有任何 Pod。观察到控制器的 FailedCreate 记录，请结合消息查找失败原因。优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "deployment_stalled",
+          "layer": "mechanism",
+          "detail": "Deployment 的 ReplicaFailure 条件为 True,说明控制器在创建 ReplicaSet/Pod 时被拒绝。查看同报告的 FailedCreate 与配额证据。",
+          "confidence": 0.8,
+          "quota_refs": []
+        }
+      ]
+    },
+    "e02-quota-partial-pods": {
+      "fixture_sha256": "8ef491a2573b198f99176de6e612a49e94073c8e5bc6cca6494b70dd9ef27140",
+      "namespace": "moonmedic-eval-e02",
+      "deployment": "payments-api",
+      "kubectl": {
+        "pod_list": [
+          "pod/payments-api-6fc486c7dd-jc7qh"
+        ],
+        "replicaset": [
+          "Replicas:       1 current / 2 desired",
+          "ReplicaFailure   True    FailedCreate"
+        ],
+        "quota": "Name:       one-pod\nNamespace:  moonmedic-eval-e02\nResource    Used  Hard\n--------    ----  ----\npods        1     1",
+        "failed_create_event": "Error creating: pods \"payments-api-6fc486c7dd-sjh8d\" is forbidden: exceeded quota: one-pod, requested: pods=1, used: pods=1, limited: pods=1"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "findings": [
+          {
+            "kind": "Deployment",
+            "errors": [
+              "Deployment moonmedic-eval-e02/payments-api has 2 replicas but 0 are available with status running"
+            ]
+          },
+          {
+            "kind": "ReplicaSet",
+            "errors": [
+              "pods \"payments-api-6fc486c7dd-sjh8d\" is forbidden: exceeded quota: one-pod, requested: pods=1, used: pods=1, limited: pods=1"
+            ]
+          }
+        ],
+        "namespace_reads": [
+          "GET /api/v1/namespaces/moonmedic-eval-e02 -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/deployments -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e02/pods -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/replicasets -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/deployments/payments-api -> 200"
+        ]
+      },
+      "holmes_model_queries": {
+        "answer": "No resources found for Deployment `payments-api` in namespace `moonmedic-eval-e02`. All queries returned zero matches or errors indicating absence. The namespace may not contain the deployment, or the resource name is incorrect. No events, pods, replicasets, or resourcequotas were detected. Missing evidence: deployment existence, replica count, or creation failure. No quota increase or resource usage data available. Confirm the exact name and namespace of the resource. If the deployment is intended, verify its presence via `kubectl get deployment -n moonmedic-eval-e02`.",
+        "namespace_reads": [
+          "GET /api/v1/namespaces/moonmedic-eval-e02/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e02/resourcequotas?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-e02/events?limit=500 -> 404",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/deployments?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | {message: .message, reason: .reason, type: .type, involvedObject: .involvedObject.name, namespace: .involvedObject.namespace, source: .source.component, firstTimestamp: .firstTimestamp}'' (namespace=moonmedic-e02, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "kubectl get --raw failed for /api/v1/namespaces/moonmedic-e02/events?limit=500. Error from server (NotFound): Not represented in snapshot"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, phase: .status.phase, containerStatuses: .status.containerStatuses, creationFailure: .status.conditions[] | select(.type == \"Failed\") | .message, node: .spec.nodeName, owner: .metadata.ownerReferences[].name}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, resource: .spec.hard, used: .status.used, hard: .spec.hard, quotaIncrease: .status.usage[\"requests.cpu\"] - .status.usage[\"requests.cpu\"]}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): null (null) and null (null) cannot be subtracted"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message, owner: .metadata.ownerReferences[].name}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): Cannot iterate over null (null)"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message, owner: .metadata.ownerReferences[].name}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace moonmedic-eval-e02. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words.",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "holmes_fixed_queries": {
+        "answer": "Deployment `payments-api` in namespace `moonmedic-eval-e02` has `desired=2` replicas but only `available=null`. The ReplicaSet `payments-api-6fc486c7dd` is in a `ReplicaFailure` state due to failed pod creation. All attempted pod creations (e.g., `payments-api-6fc486c7dd-sjh8d`) are blocked by ResourceQuota `one-pod`, which limits pods to 1. The quota is already at full usage (`used: 1`, `hard: 1`). No pods are running; the only pod (`payments-api-6fc486c7dd-jc7qh`) is in `Pending` state.  \n\n**Root cause**: Quota exhaustion.  \n**Fix**: Increase `one-pod` quota limit or reduce pod count.  \n**Missing evidence**: No logs from the application or node.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e02/events?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e02/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/moonmedic-eval-e02/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/moonmedic-eval-e02/resourcequotas?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 11,
+            "matches": 8,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}'' (namespace=moonmedic-eval-e02, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace moonmedic-eval-e02. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words. For a controlled acquisition check use namespace moonmedic-eval-e02 for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "moonmedic": [
+        {
+          "rule_id": "quota_exceeded",
+          "layer": "root_cause",
+          "detail": "快照中的同名配额及同一资源项仍满足 used + requested > hard。按当前用量与缺失副本估算，ResourceQuota/one-pod 的 pods 配额还差 1 个，需 hard ≥2。",
+          "confidence": 0.98,
+          "quota_refs": [
+            {
+              "source": "resourcequota",
+              "resource_kind": "ResourceQuota",
+              "object_name": "one-pod",
+              "field_path": "status.used.pods",
+              "observed_value": "1"
+            },
+            {
+              "source": "resourcequota",
+              "resource_kind": "ResourceQuota",
+              "object_name": "one-pod",
+              "field_path": "status.hard.pods",
+              "observed_value": "1"
+            }
+          ]
+        },
+        {
+          "rule_id": "replicaset_create_failed",
+          "layer": "mechanism",
+          "detail": "ReplicaSet 报告 FailedCreate。请结合报告中的配额或 LimitRange 证据定位。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "deployment_stalled",
+          "layer": "mechanism",
+          "detail": "Deployment 的 ReplicaFailure 条件为 True,说明控制器在创建 ReplicaSet/Pod 时被拒绝。查看同报告的 FailedCreate 与配额证据。",
+          "confidence": 0.8,
+          "quota_refs": []
+        }
+      ]
+    },
+    "r01-quota-missing-resources": {
+      "fixture_sha256": "b64af6e165167ced056db716a5abf5401c3bb302f6b6568b98689b8bcf9cbdee",
+      "namespace": "evaluation",
+      "deployment": "payments-api",
+      "kubectl": {
+        "pod_list": [],
+        "replicaset": [
+          "Replicas:     0 current / 2 desired",
+          "ReplicaFailure   True    FailedCreate"
+        ],
+        "quota": "Name:       compute\nNamespace:\nResource    Used  Hard\n--------    ----  ----\npods        3     10",
+        "failed_create_event": "Error creating: pods \"payments-api-demo-x\" is forbidden: failed quota: compute: must specify limits.cpu,requests.cpu"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "findings": [
+          {
+            "kind": "Deployment",
+            "errors": [
+              "Deployment evaluation/payments-api has 2 replicas but 0 are available with status running"
+            ]
+          },
+          {
+            "kind": "ReplicaSet",
+            "errors": [
+              "pods \"payments-api-demo-x\" is forbidden: failed quota: compute: must specify limits.cpu,requests.cpu"
+            ]
+          }
+        ],
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets -> 200",
+          "GET /api/v1/namespaces/evaluation/pods -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments/payments-api -> 200"
+        ]
+      },
+      "holmes_model_queries": {
+        "answer": "No `deployments` found in namespace `evaluation`. ReplicaSets and Pods also not present. ResourceQuotas show no entries. One event indicates a quota failure: `Error creating: pods \"payments-api-demo-x\" is forbidden: failed quota: compute: must specify limits.cpu,requests.cpu`. This suggests the `payments-api-demo` ReplicaSet cannot be created due to missing CPU resource limits/requests in the quota policy. The deployment itself is not found, so no desired/observed replicas can be reported. The root cause is a missing resource quota specification for CPU limits and requests.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): Cannot iterate over null (null)"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, resource: .spec.hard, used: .status.used, hard: .spec.hard, quotaIncrease: .status.usage[\"requests.cpu\"] - .status.usage[\"requests.cpu\"]}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): null (null) and null (null) cannot be subtracted"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.containers[0].resources.limits.cpu, observedReplicas: .status.phase, creationFailure: .status.conditions[] | select(.type == \"Failed\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | {name: .metadata.name, message: .message, reason: .reason, type: .type, involvedObject: .involvedObject.name, involvedObjectKind: .involvedObject.kind}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words.",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "holmes_fixed_queries": {
+        "answer": "Deployment `payments-api` in namespace `evaluation` has `desired=2` replicas but no available replicas. A ReplicaSet `payments-api-demo` reports `ReplicaFailure` due to `FailedCreate` for pod `payments-api-demo-x`. The error: \"failed quota: compute: must specify limits.cpu,requests.cpu\". ResourceQuota `compute` allows 10 pods (used: 3). The missing replicas are not due to resource exhaustion but a missing CPU limit/requests in the pod specification. This prevents pod creation. No pods are running. The root cause is a misconfigured pod template in the deployment lacking CPU resource requests/limits.",
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words. For a controlled acquisition check use namespace evaluation for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "moonmedic": [
+        {
+          "rule_id": "replicaset_create_failed",
+          "layer": "mechanism",
+          "detail": "ReplicaSet 报告 FailedCreate。配额要求显式声明资源，请按原始消息补齐 requests 或 limits。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "workload_no_pods",
+          "layer": "symptom",
+          "detail": "控制器期望 2 个副本,但其 ReplicaSet 下没有任何 Pod。观察到控制器的 FailedCreate 记录，请结合消息查找失败原因。优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
+          "confidence": 0.9,
+          "quota_refs": []
+        }
+      ]
+    },
+    "r02-generic-validation": {
+      "fixture_sha256": "da874a6ad027664c160fcff3b400e96eb32cd17c5aed3d872227759ea3f0e12d",
+      "namespace": "evaluation",
+      "deployment": "payments-api",
+      "kubectl": {
+        "pod_list": [],
+        "replicaset": [
+          "Replicas:     0 current / 2 desired",
+          "ReplicaFailure   True    FailedCreate"
+        ],
+        "quota": "",
+        "failed_create_event": "Error creating: pods \"payments-api-demo-x\" is forbidden: spec.template: Invalid value: unsupported field value"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "findings": [
+          {
+            "kind": "Deployment",
+            "errors": [
+              "Deployment evaluation/payments-api has 2 replicas but 0 are available with status running"
+            ]
+          },
+          {
+            "kind": "ReplicaSet",
+            "errors": [
+              "pods \"payments-api-demo-x\" is forbidden: spec.template: Invalid value: unsupported field value"
+            ]
+          }
+        ],
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation -> 200",
+          "GET /api/v1/namespaces/evaluation/pods -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments/payments-api -> 200"
+        ]
+      },
+      "holmes_model_queries": {
+        "answer": "No deployments, replica sets, or pods found for `payments-api` in namespace `evaluation`. A creation failure event indicates a pod template validation error: `spec.template: Invalid value: unsupported field value`. This prevents pod creation, likely due to malformed or unsupported fields in the pod specification (e.g., invalid container settings). Resource quotas and related resources are not present. The root cause is a configuration error in the pod template, not resource limits or quota constraints. No evidence of missing replicas or quota violations. The deployment itself is not active or created.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): Cannot iterate over null (null)"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.containers[0].resources.limits.cpu, observedReplicas: .status.phase, creationFailure: .status.conditions[] | select(.type == \"Failed\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, resource: .spec.hard, used: .status.used, hard: .spec.hard, quotaIncrease: .status.usage}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | {name: .metadata.name, message: .message, reason: .reason, type: .type, involvedObject: .involvedObject.name, involvedObjectKind: .involvedObject.kind}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words.",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "holmes_fixed_queries": {
+        "answer": "Deployment `payments-api` in namespace `evaluation` has `desired=2` replicas but no available replicas. A ReplicaSet `payments-api-demo` exists, owned by the deployment, with a `ReplicaFailure` condition due to `FailedCreate`. The error states: \"pods \\\"payments-api-demo-x\\\" is forbidden: spec.template: Invalid value: unsupported field value\". No pods are present. ResourceQuotas not found.  \n\n**Root cause**: The deployment's pod template contains an unsupported field, violating Kubernetes validation. This prevents pod creation and causes the ReplicaSet to fail.  \n\n**Action**: Review and remove invalid fields (e.g., malformed labels, unsupported annotations) in the `spec.template` of the `payments-api` deployment. Validate against Kubernetes schema.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words. For a controlled acquisition check use namespace evaluation for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "moonmedic": [
+        {
+          "rule_id": "replicaset_create_failed",
+          "layer": "mechanism",
+          "detail": "ReplicaSet 报告 FailedCreate。请从原始消息确认创建失败原因。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "workload_no_pods",
+          "layer": "symptom",
+          "detail": "控制器期望 2 个副本,但其 ReplicaSet 下没有任何 Pod。观察到控制器的 FailedCreate 记录，请结合消息查找失败原因。优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
+          "confidence": 0.9,
+          "quota_refs": []
+        }
+      ]
+    },
+    "r03-webhook-with-saturation": {
+      "fixture_sha256": "d9353b2ea3916e084c5d30c6657df526ffe8f612ce793510b5e2453a00a8851e",
+      "namespace": "evaluation",
+      "deployment": "payments-api",
+      "kubectl": {
+        "pod_list": [],
+        "replicaset": [
+          "Replicas:     0 current / 2 desired",
+          "ReplicaFailure   True    FailedCreate"
+        ],
+        "quota": "Name:       compute\nNamespace:\nResource    Used  Hard\n--------    ----  ----\npods        10    10",
+        "failed_create_event": "Error creating: pods \"payments-api-demo-x\" is forbidden: admission webhook \"pod-policy.example.com\" denied the request: policy mismatch"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "findings": [
+          {
+            "kind": "Deployment",
+            "errors": [
+              "Deployment evaluation/payments-api has 2 replicas but 0 are available with status running"
+            ]
+          },
+          {
+            "kind": "ReplicaSet",
+            "errors": [
+              "pods \"payments-api-demo-x\" is forbidden: admission webhook \"pod-policy.example.com\" denied the request: policy mismatch"
+            ]
+          }
+        ],
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets -> 200",
+          "GET /api/v1/namespaces/evaluation/pods -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments/payments-api -> 200"
+        ]
+      },
+      "holmes_model_queries": {
+        "answer": "No `deployments` or `replicasets` found in namespace `evaluation`. Pod and resource quota queries returned no results. An event indicates a creation failure for pod `payments-api-demo-x`: admission webhook `pod-policy.example.com` denied it due to a policy mismatch. The deployment `payments-api` is not present or not active. No evidence of desired/observed replicas or resource quota constraints. The root cause is a policy enforcement blocking pod creation. No further impact observed. Missing evidence: actual deployment or replica set configuration.",
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): Cannot iterate over null (null)"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.containers[0].resources.limits.cpu, observedReplicas: .status.phase, creationFailure: .status.conditions[] | select(.type == \"Failed\") | .message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, resource: .spec.hard, used: .status.used, hard: .spec.hard, quotaIncrease: .status.usage}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | {name: .metadata.name, message: .message, reason: .reason, type: .type, involvedObject: .involvedObject.name, involvedObjectKind: .involvedObject.kind}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words.",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "holmes_fixed_queries": {
+        "answer": "Deployment `payments-api` in namespace `evaluation` has `desired=2` replicas but no available replicas. A ReplicaSet `payments-api-demo` exists, owned by the deployment, with a `ReplicaFailure` condition due to a policy mismatch. The failure occurs during pod creation: admission webhook `pod-policy.example.com` denies the request with message \"policy mismatch\". No ResourceQuota limits are exceeded. The root cause is a configuration or policy mismatch in the pod specification, preventing pod creation. No pods are running. The deployment is not in a healthy state due to this admission failure.",
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words. For a controlled acquisition check use namespace evaluation for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "moonmedic": [
+        {
+          "rule_id": "quota_at_capacity",
+          "layer": "related",
+          "detail": "快照中部分资源的 used 已达到 hard。若新 Pod 计入该配额，创建可能受阻。请结合控制器的拒绝记录确认原因。",
+          "confidence": 0.7,
+          "quota_refs": [
+            {
+              "source": "resourcequota",
+              "resource_kind": "ResourceQuota",
+              "object_name": "compute",
+              "field_path": "status.used.pods",
+              "observed_value": "10"
+            },
+            {
+              "source": "resourcequota",
+              "resource_kind": "ResourceQuota",
+              "object_name": "compute",
+              "field_path": "status.hard.pods",
+              "observed_value": "10"
+            }
+          ]
+        },
+        {
+          "rule_id": "replicaset_create_failed",
+          "layer": "mechanism",
+          "detail": "ReplicaSet 报告 FailedCreate。请从原始消息确认创建失败原因。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "workload_no_pods",
+          "layer": "symptom",
+          "detail": "控制器期望 2 个副本,但其 ReplicaSet 下没有任何 Pod。观察到控制器的 FailedCreate 记录，请结合消息查找失败原因。优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
+          "confidence": 0.9,
+          "quota_refs": []
+        }
+      ]
+    },
+    "r04-unmatched-quota": {
+      "fixture_sha256": "6feff714e9136247e726cc8f145712a1eab012edc5863375c2f26e5d13819c33",
+      "namespace": "evaluation",
+      "deployment": "payments-api",
+      "kubectl": {
+        "pod_list": [],
+        "replicaset": [
+          "Replicas:     0 current / 2 desired",
+          "ReplicaFailure   True    FailedCreate"
+        ],
+        "quota": "Name:       other-quota\nNamespace:\nResource    Used  Hard\n--------    ----  ----\npods        10    10\n\n\nName:         compute\nNamespace:  \nResource      Used  Hard\n--------      ----  ----\nrequests.cpu  4     4",
+        "failed_create_event": "Error creating: pods \"payments-api-demo-x\" is forbidden: exceeded quota: compute, requested: pods=1, used: pods=10, limited: pods=10"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "findings": [
+          {
+            "kind": "ReplicaSet",
+            "errors": [
+              "pods \"payments-api-demo-x\" is forbidden: exceeded quota: compute, requested: pods=1, used: pods=10, limited: pods=10"
+            ]
+          },
+          {
+            "kind": "Deployment",
+            "errors": [
+              "Deployment evaluation/payments-api has 2 replicas but 0 are available with status running"
+            ]
+          }
+        ],
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets -> 200",
+          "GET /api/v1/namespaces/evaluation/pods -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments/payments-api -> 200"
+        ]
+      },
+      "holmes_model_queries": {
+        "answer": "No `payments-api` deployment found in namespace `evaluation`. Replicasets, pods, and resource quotas queried show no matching resources. An event indicates a quota violation: `FailedCreate` for pod `payments-api-demo-x` due to exceeding the `compute` quota (pods=10, limit=10). The resource quota `compute` restricts pod requests to 10, and the creation failure confirms the missing replicas are due to quota limits. No deployment, replica set, or pod exists for `payments-api`. The root cause is a resource quota constraint preventing pod creation.",
+        "namespace_reads": [
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message, owner: .metadata.ownerReferences[].name}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": "jq expression failed. jq: error (at <stdin>:1): Cannot iterate over null (null)"
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, desiredReplicas: .spec.replicas, observedReplicas: .status.replicas, creationFailure: .status.conditions[] | select(.type == \"Available\") | .message, owner: .metadata.ownerReferences[].name}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, phase: .status.phase, containerStatuses: .status.containerStatuses, restartCount: .status.restartCount, creationTimestamp: .metadata.creationTimestamp, nodeName: .spec.nodeName, owner: .metadata.ownerReferences[].name}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, resource: .spec.hard, used: .status.used, hard: .spec.hard, quotaIncrease: .status.quotaUsed}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 2,
+            "matches": 2,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | {message: .message, type: .type, reason: .reason, involvedObject: .involvedObject, firstTimestamp: .firstTimestamp, lastTimestamp: .lastTimestamp}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words.",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "holmes_fixed_queries": {
+        "answer": "Deployment `payments-api` in namespace `evaluation` has `desired=2` replicas but no available replicas. The ReplicaSet `payments-api-demo` failed to create new pods due to quota exhaustion: ResourceQuota `compute` limits pods to 10, which is already fully used (used: 10/10). The error message confirms the failure: \"pods \\\"payments-api-demo-x\\\" is forbidden: exceeded quota: compute, requested: pods=1, used: pods=10, limited: pods=10\".\n\nNo pods are currently running. The root cause is a pod quota limit being reached. To resolve, either increase the quota or reduce the number of pods in the deployment. The deployment's desired replicas are set to 2, but the quota prevents new pods from being created.",
+        "namespace_reads": [
+          "GET /api/v1/namespaces/evaluation/pods?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/replicasets?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/events?limit=500 -> 200",
+          "GET /api/v1/namespaces/evaluation/resourcequotas?limit=500 -> 200",
+          "GET /apis/apps/v1/namespaces/evaluation/deployments?limit=500 -> 200"
+        ],
+        "tools": [
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get pods | jq ''.items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 0,
+            "matches": 0,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get replicasets | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get deployments | jq ''.items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get events | jq ''.items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 1,
+            "matches": 1,
+            "error": null
+          },
+          {
+            "name": "kubernetes_jq_query",
+            "query": "jq query: kubectl get resourcequotas | jq ''.items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}'' (namespace=evaluation, label_selector=, field_selector=)",
+            "items": 2,
+            "matches": 2,
+            "error": null
+          }
+        ],
+        "prompt": "Investigate Deployment payments-api in namespace evaluation. Use read-only Kubernetes tools. List deployments, replicasets, pods, resourcequotas, and events in this small namespace using those exact plural resource names. Omit label_selector, field_selector and filter. Project only useful fields from .items[] with kubernetes_jq_query; keep original creation failure messages. Report desired replicas, the observed number of owned Pods, the creation failure and evidence, and if applicable the relevant ResourceQuota name, resource, current used/hard, and the quota increase for missing replicas. Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words. For a controlled acquisition check use namespace evaluation for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, conditions: .status.conditions}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | select(.reason == \"FailedCreate\") | {object: .involvedObject.name, reason, message}",
+        "completion": {
+          "finish_reason": "stop",
+          "model_calls": 2
+        }
+      },
+      "moonmedic": [
+        {
+          "rule_id": "quota_exceeded",
+          "layer": "root_cause",
+          "detail": "拒绝记录识别出配额超限，当前快照没有可佐证的同名配额资源数值。",
+          "confidence": 0.85,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "replicaset_create_failed",
+          "layer": "mechanism",
+          "detail": "ReplicaSet 报告 FailedCreate。请结合报告中的配额或 LimitRange 证据定位。",
+          "confidence": 0.9,
+          "quota_refs": []
+        },
+        {
+          "rule_id": "workload_no_pods",
+          "layer": "symptom",
+          "detail": "控制器期望 2 个副本,但其 ReplicaSet 下没有任何 Pod。观察到控制器的 FailedCreate 记录，请结合消息查找失败原因。优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
+          "confidence": 0.9,
+          "quota_refs": []
+        }
+      ]
+    }
+  }
+}
