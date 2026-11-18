@@ -1,5 +1,16 @@
 {
   "expect_rule_ids": ["quota_exceeded", "workload_no_pods", "replicaset_create_failed", "deployment_stalled"],
   "forbid_rule_ids": ["insufficient_evidence", "limitrange_reject"],
-  "evidence_contains": ["exceeded quota"]
+  "evidence_contains": ["exceeded quota"],
+  "expect_findings": {
+    "quota_exceeded": {
+      "layer": "root_cause",
+      "confidence": 0.98,
+      "detail_contains": ["还差 2 个", "hard ≥2"],
+      "evidence_refs": [
+        {"source": "resourcequota", "object_name": "zero-pods", "field_path": "status.used.pods", "observed_value": "0"},
+        {"source": "resourcequota", "object_name": "zero-pods", "field_path": "status.hard.pods", "observed_value": "0"}
+      ]
+    }
+  }
 }

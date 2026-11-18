@@ -1,0 +1,25 @@
+{
+  "forbid_rule_ids": [
+    "quota_exceeded",
+    "limitrange_reject",
+    "quota_at_capacity"
+  ],
+  "evidence_contains": [
+    "failed quota: compute: must specify limits.cpu,requests.cpu"
+  ],
+  "expect_findings": {
+    "replicaset_create_failed": {
+      "layer": "mechanism",
+      "evidence_refs": [
+        {
+          "source": "replicaset",
+          "object_name": "payments-api-demo",
+          "observed_value": "pods \"payments-api-demo-x\" is forbidden: failed quota: compute: must specify limits.cpu,requests.cpu"
+        }
+      ]
+    },
+    "workload_no_pods": {
+      "layer": "symptom"
+    }
+  }
+}

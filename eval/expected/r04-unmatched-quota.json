@@ -1,0 +1,42 @@
+{
+  "forbid_rule_ids": [
+    "limitrange_reject"
+  ],
+  "expect_findings": {
+    "replicaset_create_failed": {
+      "layer": "mechanism",
+      "evidence_refs": [
+        {
+          "source": "replicaset",
+          "object_name": "payments-api-demo",
+          "observed_value": "pods \"payments-api-demo-x\" is forbidden: exceeded quota: compute, requested: pods=1, used: pods=10, limited: pods=10"
+        }
+      ]
+    },
+    "workload_no_pods": {
+      "layer": "symptom"
+    },
+    "quota_exceeded": {
+      "layer": "root_cause",
+      "confidence": 0.85,
+      "evidence_refs": [
+        {
+          "source": "events"
+        },
+        {
+          "source": "replicaset"
+        }
+      ],
+      "forbid_evidence_sources": [
+        "resourcequota"
+      ],
+      "forbid_detail_contains": [
+        "还差",
+        "hard ≥"
+      ]
+    }
+  },
+  "evidence_contains": [
+    "exceeded quota: compute, requested: pods=1, used: pods=10, limited: pods=10"
+  ]
+}

@@ -28,3 +28,5 @@ jobs:
           fi
       - name: moon test
         run: moon test
+      - name: Replay diagnostic fixtures
+        run: bash eval/scripts/run-all.sh

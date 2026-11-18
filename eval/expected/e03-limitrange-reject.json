@@ -1,5 +1,12 @@
 {
   "expect_rule_ids": ["limitrange_reject", "workload_no_pods"],
   "forbid_rule_ids": ["quota_exceeded"],
-  "evidence_contains": ["maximum memory usage per Container"]
+  "evidence_contains": ["maximum memory usage per Container"],
+  "expect_findings": {
+    "limitrange_reject": {
+      "layer": "root_cause",
+      "confidence": 0.85,
+      "evidence_refs": [{"source": "events"}, {"source": "replicaset"}]
+    }
+  }
 }

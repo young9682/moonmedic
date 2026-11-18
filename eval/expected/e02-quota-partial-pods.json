@@ -1,5 +1,17 @@
 {
   "expect_rule_ids": ["quota_exceeded", "replicaset_create_failed"],
   "forbid_rule_ids": ["workload_no_pods"],
-  "evidence_contains": ["exceeded quota"]
+  "evidence_contains": ["exceeded quota"],
+  "expect_findings": {
+    "quota_exceeded": {
+      "layer": "root_cause",
+      "confidence": 0.98,
+      "detail_contains": ["还差 1 个", "hard ≥2"],
+      "evidence_refs": [
+        {"source": "resourcequota", "object_name": "one-pod", "field_path": "status.used.pods", "observed_value": "1"},
+        {"source": "deployment", "field_path": "spec.replicas", "observed_value": "2"},
+        {"source": "snapshot", "field_path": "owned_pod_count", "observed_value": "1"}
+      ]
+    }
+  }
 }

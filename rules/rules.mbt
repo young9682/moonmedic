@@ -32,25 +32,6 @@ fn first_event(
 }
 
 ///|
-/// Event evidence lines matching a predicate, capped so one chatty controller
-/// cannot dominate the report.
-fn event_evidence(
-  events : Array[EventFact],
-  predicate : (EventFact) -> Bool,
-) -> Array[String] {
-  let out : Array[String] = []
-  for event in events {
-    if predicate(event) {
-      out.push(event.text())
-      if out.length() >= 5 {
-        break
-      }
-    }
-  }
-  out
-}
-
-///|
 /// Rule: container was OOM-killed (exit 137, reason OOMKilled).
 fn rule_oomkilled(facts : PodFacts) -> Finding? {
   if facts.last_term_reason != Some("OOMKilled") {
@@ -330,38 +311,6 @@ pub fn run_all(facts : PodFacts) -> Array[Finding] {
 }
 
 ///|
-/// Scan all quotas for resources whose usage reached the hard limit.
-/// Returns (evidence lines, resource names).
-fn saturated_quota_lines(
-  facts : WorkloadFacts,
-) -> (Array[String], Array[String]) {
-  let lines : Array[String] = []
-  let resources : Array[String] = []
-  for quota in facts.quotas {
-    for pair in quota.hard {
-      let (resource, hard) = pair
-      match quota.used_quantity(resource) {
-        Some(used) =>
-          if quantity_saturated(used, hard) {
-            let percent = match quota_usage_percent(used, hard) {
-              Some(value) => "\{value}%"
-              // hard=0(如 pods=0)在数学上是 0/0:语义上任何请求都超限,
-              // 显示 n/a 而不是空括号。
-              None => "n/a"
-            }
-            lines.push(
-              "ResourceQuota/\{quota.name} status: \{resource} used=\"\{used}\", hard=\"\{hard}\"(\{percent})",
-            )
-            resources.push(resource)
-          }
-        None => ()
-      }
-    }
-  }
-  (lines, resources)
-}
-
-///|
 /// Build a structured evidence reference from fact-level fields. `source`
 /// records where the value was collected from (kubernetes object kinds or
 /// the snapshot computation layer).
@@ -403,105 +352,27 @@ fn pod_evidence_refs(
 }
 
 ///|
-/// Corroborating creation failures for the quota root cause. Narrow by
-/// design: the evidence itself must mention quota. A bare "forbidden" or a
-/// plain FailedCreate can come from LimitRange, admission webhooks or RBAC,
-/// and must not upgrade the finding to "quota exceeded".
-fn quota_failure_evidence(facts : WorkloadFacts) -> Array[String] {
-  let lines = event_evidence(facts.events, fn(event) {
-    event.is_failed_create() &&
-    (
-      event.message.contains("exceeded quota") ||
-      event.message.contains("quota")
-    )
-  })
-  for rs in facts.replicasets {
-    for condition in rs.conditions {
-      if condition.type_ == "ReplicaFailure" &&
-        condition.status == "True" &&
-        condition.message.contains("quota") {
-        lines.push(
-          "ReplicaSet/\{rs.name} condition ReplicaFailure(\{condition.reason}): \{condition.message}",
-        )
-      }
-    }
-  }
-  lines
+priv struct CreationFailure {
+  line : String
+  reference : Evidence
 }
 
 ///|
-/// Rule: a resource quota is exhausted AND a controller reported a creation
-/// failure. This is the root-cause finding for "the Pod was never created".
-fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
-  let (quota_lines, resources) = saturated_quota_lines(facts)
-  let failure_lines = quota_failure_evidence(facts)
-  if quota_lines.length() == 0 && failure_lines.length() == 0 {
-    return None
-  }
-  let evidence : Array[String] = []
-  for line in quota_lines {
-    evidence.push(line)
-  }
-  for line in failure_lines {
-    evidence.push(line)
-  }
-  let corroborated = failure_lines.length() > 0
-  let measured = quota_lines.length() > 0
-  // A saturated quota alone is a warning, not a proven rejection. Require a
-  // controller failure or the missing-Pod symptom before calling it a root
-  // cause; otherwise `quota_at_capacity` owns the finding.
-  // The pod_missing corroboration relies on a trustworthy Pod count: an
-  // unavailable/truncated Pods list must not upgrade this finding.
-  if !corroborated && (!facts.pod_missing || !facts.pods_status.is_usable()) {
-    return None
-  }
-  let confidence = if corroborated && measured {
-    0.98
-  } else if corroborated {
-    0.85
-  } else {
-    0.7
-  }
-  let resource_text = if resources.length() > 0 {
-    "饱和资源:\{resources.join(", ")}。"
-  } else {
-    "配额对象未返回 used 数据,结论依据创建失败事件。"
-  }
-  let recommendation = match pods_quota_recommendation(facts) {
-    Some(text) => text
-    None => ""
-  }
-  let cause_text = if corroborated {
-    "控制器已报告 FailedCreate,说明 Pod 不是崩溃而是根本没有被创建。"
-  } else {
-    "未读取到 FailedCreate 事件,但工作负载期望副本 > 0 而归属 Pod 为 0;结论依据配额数据与缺失 Pod 现象。"
-  }
-  let refs : Array[Evidence] = []
-  for quota in facts.quotas {
-    for pair in quota.hard {
-      let (resource, hard) = pair
-      match quota.used_quantity(resource) {
-        Some(used) =>
-          if quantity_saturated(used, hard) {
-            refs.push(
-              evidence_ref(
-                source="resourcequota",
-                resource_kind="ResourceQuota",
-                object_name=quota.name,
-                field_path="status." + resource,
-                observed_value="used=" + used + ", hard=" + hard,
-                observed_at=None,
-              ),
-            )
-          }
-        None => ()
-      }
-    }
-  }
+fn is_create_failure(condition : ConditionFact) -> Bool {
+  condition.type_ == "ReplicaFailure" &&
+  condition.status == "True" &&
+  condition.reason == "FailedCreate"
+}
+
+///|
+fn creation_failures(facts : WorkloadFacts) -> Array[CreationFailure] {
+  let failures : Array[CreationFailure] = []
   for event in facts.events {
-    if event.is_failed_create() && event.message.contains("quota") {
-      refs.push(
-        evidence_ref(
+    if event.is_failed_create() &&
+      (event.kind == "ReplicaSet" || event.kind == "Deployment") {
+      failures.push({
+        line: event.text(),
+        reference: evidence_ref(
           source="events",
           resource_kind=event.kind,
           object_name=event.name,
@@ -509,136 +380,218 @@ fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
           observed_value=event.message,
           observed_at=event.last_seen,
         ),
-      )
+      })
     }
   }
   for rs in facts.replicasets {
     for condition in rs.conditions {
-      if condition.type_ == "ReplicaFailure" &&
-        condition.message.contains("quota") {
-        refs.push(
-          evidence_ref(
+      if is_create_failure(condition) {
+        failures.push({
+          line: "ReplicaSet/\{rs.name} condition ReplicaFailure(FailedCreate): \{condition.message}",
+          reference: evidence_ref(
             source="replicaset",
             resource_kind="ReplicaSet",
             object_name=rs.name,
             field_path="status.conditions[ReplicaFailure].message",
             observed_value=condition.message,
-            observed_at=None,
           ),
-        )
+        })
       }
     }
   }
+  failures
+}
+
+///|
+fn quota_status_line(
+  quota : QuotaFact,
+  resource : String,
+  used : String,
+  hard : String,
+) -> String {
+  let percent = match quota_usage_percent(used, hard) {
+    Some(value) => "\{value}%"
+    None => "n/a"
+  }
+  "ResourceQuota/\{quota.name} status: \{resource} used=\"\{used}\", hard=\"\{hard}\"(\{percent})"
+}
+
+///|
+fn append_quota_status(
+  evidence : Array[String],
+  refs : Array[Evidence],
+  quota : QuotaFact,
+  resource : String,
+  used : String,
+  hard : String,
+) -> Unit {
+  evidence.push(quota_status_line(quota, resource, used, hard))
+  refs.push(
+    evidence_ref(
+      source="resourcequota",
+      resource_kind="ResourceQuota",
+      object_name=quota.name,
+      field_path="status.used.\{resource}",
+      observed_value=used,
+    ),
+  )
+  refs.push(
+    evidence_ref(
+      source="resourcequota",
+      resource_kind="ResourceQuota",
+      object_name=quota.name,
+      field_path="status.hard.\{resource}",
+      observed_value=hard,
+    ),
+  )
+}
+
+///|
+/// Keep explicit controller denials distinct from present-day saturation.
+/// Status corroborates only a matching quota name and resource delta.
+fn rule_quota_exceeded(facts : WorkloadFacts) -> Finding? {
+  let evidence : Array[String] = []
+  let refs : Array[Evidence] = []
+  let requested_by_quota : Map[String, Map[String, Double]] = Map([])
+  for failure in creation_failures(facts) {
+    if classify_admission(failure.reference.observed_value)
+      is QuotaExceeded(rejection) {
+      evidence.push(failure.line)
+      refs.push(failure.reference)
+      let requests = match requested_by_quota.get(rejection.name) {
+        Some(requests) => requests
+        None => {
+          let requests = Map([])
+          requested_by_quota[rejection.name] = requests
+          requests
+        }
+      }
+      for resource, request in rejection.requested {
+        // Use the largest recorded delta when multiple attempts differ.
+        if request > requests.get(resource).unwrap_or(0.0) {
+          requests[resource] = request
+        }
+      }
+    }
+  }
+  if requested_by_quota.length() == 0 {
+    return None
+  }
+
+  let mut measured = false
+  let recommendations : Array[String] = []
+  for quota in facts.quotas {
+    if requested_by_quota.get(quota.name) is Some(requests) {
+      for resource, request in requests {
+        guard quota.used_quantity(resource) is Some(used) &&
+          quota.hard_quantity(resource) is Some(hard) &&
+          admission_quantity(used.trim()) is Some(used_value) &&
+          admission_quantity(hard.trim()) is Some(hard_value) &&
+          request > hard_value - used_value else {
+          continue
+        }
+        measured = true
+        append_quota_status(evidence, refs, quota, resource, used, hard)
+        if resource == "pods" && request == 1.0 {
+          if pods_quota_recommendation(
+              facts,
+              quota.name,
+              used_value,
+              hard_value,
+            )
+            is Some(text) {
+            recommendations.push(text)
+          }
+        }
+      }
+    }
+  }
+  let explanation = if measured {
+    "快照中的同名配额及同一资源项仍满足 used + requested > hard。"
+  } else {
+    "拒绝记录识别出配额超限，当前快照没有可佐证的同名配额资源数值。"
+  }
+  if recommendations.length() > 0 {
+    refs.push(
+      evidence_ref(
+        source="deployment",
+        resource_kind="Deployment",
+        object_name=facts.name,
+        field_path="spec.replicas",
+        observed_value="\{facts.desired}",
+      ),
+    )
+    refs.push(
+      evidence_ref(
+        source="snapshot",
+        resource_kind="Deployment",
+        object_name=facts.name,
+        field_path="owned_pod_count",
+        observed_value="\{facts.pod_count}",
+      ),
+    )
+  }
   Some({
     rule_id: "quota_exceeded",
-    title: "命名空间配额耗尽,新 Pod 无法创建",
-    detail: "\{resource_text}\{cause_text}\{recommendation}建议:1) 清理不再使用的 Pod/Job 释放配额;2) 核对 requests 与 limits 是否计入预期资源;3) 由管理员提高 ResourceQuota 上限。",
-    confidence,
+    title: "创建 Pod 请求超过 ResourceQuota",
+    detail: explanation + recommendations.join(""),
+    confidence: if measured {
+      0.98
+    } else {
+      0.85
+    },
     evidence,
     evidence_refs: refs,
   })
 }
 
 ///|
-/// Compute a concrete `pods` quota recommendation: how many more Pods the
-/// workload needs and what hard limit would admit them. Other resources stay
-/// qualitative because their request sums need the Pod template.
-fn pods_quota_recommendation(facts : WorkloadFacts) -> String? {
+fn pods_quota_recommendation(
+  facts : WorkloadFacts,
+  quota_name : String,
+  used : Double,
+  hard : Double,
+) -> String? {
   let needed = facts.desired - facts.pod_count
-  if needed <= 0 {
+  if needed <= 0 || !facts.pods_status.is_usable() {
     return None
   }
-  for quota in facts.quotas {
-    let used = quota.used_quantity("pods")
-    let hard = quota.hard_quantity("pods")
-    if used is Some(used_text) {
-      if hard is Some(hard_text) {
-        if parse_quantity(used_text) is Some(used_value) {
-          if parse_quantity(hard_text) is Some(hard_value) {
-            let required = used_value + needed.to_double()
-            if required > hard_value {
-              let gap = (required - hard_value).to_int()
-              return Some(
-                "计算:pods 配额还差 \{gap} 个;将 hard 从 \{hard_text} 提高到 ≥\{required.to_int()},或缩容 \{gap} 个现有 Pod。",
-              )
-            }
-          }
-        }
-      }
-    }
+  let required = used + needed.to_double()
+  let int_max = 2147483647.0
+  if required <= hard ||
+    required > int_max ||
+    used != used.to_int().to_double() ||
+    hard != hard.to_int().to_double() {
+    return None
   }
-  None
+  let gap = (required - hard).to_int()
+  Some(
+    "按当前用量与缺失副本估算，ResourceQuota/\{quota_name} 的 pods 配额还差 \{gap} 个，需 hard ≥\{required.to_int()}。",
+  )
 }
 
 ///|
-/// Rule: quota is at capacity but no creation failure has been observed yet.
 fn rule_quota_at_capacity(facts : WorkloadFacts) -> Finding? {
-  if quota_failure_evidence(facts).length() > 0 {
-    return None
-  }
-  let (lines, _) = saturated_quota_lines(facts)
-  if lines.length() == 0 {
-    return None
-  }
+  let evidence : Array[String] = []
   let refs : Array[Evidence] = []
   for quota in facts.quotas {
     for pair in quota.hard {
       let (resource, hard) = pair
-      match quota.used_quantity(resource) {
-        Some(used) =>
-          if quantity_saturated(used, hard) {
-            refs.push(
-              evidence_ref(
-                source="resourcequota",
-                resource_kind="ResourceQuota",
-                object_name=quota.name,
-                field_path="status." + resource,
-                observed_value="used=" + used + ", hard=" + hard,
-                observed_at=None,
-              ),
-            )
-          }
-        None => ()
+      if quota.used_quantity(resource) is Some(used) &&
+        quantity_saturated(used, hard) {
+        append_quota_status(evidence, refs, quota, resource, used, hard)
       }
     }
   }
-  for event in facts.events {
-    if event.is_failed_create() && event.message.contains("quota") {
-      refs.push(
-        evidence_ref(
-          source="events",
-          resource_kind=event.kind,
-          object_name=event.name,
-          field_path="events[reason=FailedCreate].message",
-          observed_value=event.message,
-          observed_at=event.last_seen,
-        ),
-      )
-    }
-  }
-  for rs in facts.replicasets {
-    for condition in rs.conditions {
-      if condition.type_ == "ReplicaFailure" &&
-        condition.message.contains("quota") {
-        refs.push(
-          evidence_ref(
-            source="replicaset",
-            resource_kind="ReplicaSet",
-            object_name=rs.name,
-            field_path="status.conditions[ReplicaFailure].message",
-            observed_value=condition.message,
-            observed_at=None,
-          ),
-        )
-      }
-    }
+  if evidence.length() == 0 {
+    return None
   }
   Some({
     rule_id: "quota_at_capacity",
-    title: "命名空间配额已用满",
-    detail: "ResourceQuota 的 used 已达到 hard 上限。当前工作负载可能仍可运行,但任何新的 Pod 创建/滚动更新都可能被拒绝。建议提前清理或扩容配额。",
+    title: "命名空间存在已用满的配额",
+    detail: "快照中部分资源的 used 已达到 hard。若新 Pod 计入该配额，创建可能受阻。请结合控制器的拒绝记录确认原因。",
     confidence: 0.7,
-    evidence: lines,
+    evidence,
     evidence_refs: refs,
   })
 }
@@ -649,11 +602,19 @@ fn rule_quota_at_capacity(facts : WorkloadFacts) -> Finding? {
 fn rule_replicaset_create_failed(facts : WorkloadFacts) -> Finding? {
   for rs in facts.replicasets {
     for condition in rs.conditions {
-      if condition.type_ == "ReplicaFailure" && condition.status == "True" {
+      if is_create_failure(condition) {
+        let detail = match classify_admission(condition.message) {
+          MissingQuotaResources =>
+            "ReplicaSet 报告 FailedCreate。配额要求显式声明资源，请按原始消息补齐 requests 或 limits。"
+          Unclassified =>
+            "ReplicaSet 报告 FailedCreate。请从原始消息确认创建失败原因。"
+          QuotaExceeded(_) | LimitRangeRejected =>
+            "ReplicaSet 报告 FailedCreate。请结合报告中的配额或 LimitRange 证据定位。"
+        }
         return Some({
           rule_id: "replicaset_create_failed",
           title: "ReplicaSet 创建 Pod 失败(FailedCreate)",
-          detail: "ReplicaSet 的 ReplicaFailure 条件为 True,表示控制器已尝试创建 Pod 但被 API Server 拒绝。常见原因:ResourceQuota 耗尽、LimitRange 校验失败、准入 Webhook 拒绝。请结合同报告中的配额/准入证据定位。",
+          detail,
           confidence: 0.9,
           evidence: [
             "ReplicaSet/\{rs.name} desired=\{rs.desired}, ready=\{rs.ready}",
@@ -672,6 +633,28 @@ fn rule_replicaset_create_failed(facts : WorkloadFacts) -> Finding? {
         })
       }
     }
+  }
+  if first_event(facts.events, fn(event) {
+      event.kind == "ReplicaSet" && event.is_failed_create()
+    })
+    is Some(event) {
+    return Some({
+      rule_id: "replicaset_create_failed",
+      title: "ReplicaSet 创建 Pod 失败(FailedCreate)",
+      detail: "观察到 ReplicaSet 的 FailedCreate 事件。请核对原始创建失败消息。",
+      confidence: 0.9,
+      evidence: [event.text()],
+      evidence_refs: [
+        evidence_ref(
+          source="events",
+          resource_kind="ReplicaSet",
+          object_name=event.name,
+          field_path="events[reason=FailedCreate].message",
+          observed_value=event.message,
+          observed_at=event.last_seen,
+        ),
+      ],
+    })
   }
   None
 }
@@ -704,7 +687,7 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
   let cause_text = if !facts.events_status.is_usable() {
     "事件列表不可用,无法从事件侧排除或确认拒绝原因。"
   } else if failed.length() > 0 {
-    "这不是容器启动失败,而是创建请求在准入阶段被拒绝。"
+    "观察到控制器的 FailedCreate 记录，请结合消息查找失败原因。"
   } else {
     "未观察到 FailedCreate 事件;请检查控制器状态、RBAC 或准入 Webhook。"
   }
@@ -748,7 +731,7 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
   }
   Some({
     rule_id: "workload_no_pods",
-    title: "工作负载没有任何 Pod(不是崩溃,而是未创建)",
+    title: "快照中工作负载的归属 Pod 数为零",
     detail: "控制器期望 \{facts.desired} 个副本,但其 ReplicaSet 下没有任何 Pod。\{cause_text}优先检查 FailedCreate 事件、ResourceQuota 与 LimitRange。",
     confidence,
     evidence,
@@ -759,45 +742,13 @@ fn rule_workload_no_pods(facts : WorkloadFacts) -> Finding? {
 ///|
 /// Rule: LimitRange admission rejected the Pod shape (min/max or ratio).
 fn rule_limitrange_reject(facts : WorkloadFacts) -> Finding? {
-  let looks_like_limitrange = fn(message : String) {
-    (
-      message.contains("LimitRange") ||
-      message.contains("minimum") ||
-      message.contains("maximum") ||
-      message.contains("must be less than or equal to") ||
-      message.contains("Invalid value")
-    ) &&
-    !message.contains("exceeded quota")
-  }
-  let matched = first_event(facts.events, fn(event) {
-    event.is_failed_create() && looks_like_limitrange(event.message)
-  })
   let evidence : Array[String] = []
   let refs : Array[Evidence] = []
-  match matched {
-    Some(event) => {
-      evidence.push(event.text())
-      refs.push(
-        evidence_ref(
-          source="events",
-          resource_kind=event.kind,
-          object_name=event.name,
-          field_path="events[reason=FailedCreate].message",
-          observed_value=event.message,
-          observed_at=event.last_seen,
-        ),
-      )
-    }
-    None => ()
-  }
-  for rs in facts.replicasets {
-    for condition in rs.conditions {
-      if condition.type_ == "ReplicaFailure" &&
-        looks_like_limitrange(condition.message) {
-        evidence.push(
-          "ReplicaSet/\{rs.name} condition: \{condition.reason}: \{condition.message}",
-        )
-      }
+  for failure in creation_failures(facts) {
+    if classify_admission(failure.reference.observed_value)
+      is LimitRangeRejected {
+      evidence.push(failure.line)
+      refs.push(failure.reference)
     }
   }
   if evidence.length() == 0 {
@@ -806,7 +757,7 @@ fn rule_limitrange_reject(facts : WorkloadFacts) -> Finding? {
   Some({
     rule_id: "limitrange_reject",
     title: "LimitRange 校验拒绝创建 Pod",
-    detail: "创建失败信息包含 LimitRange 的 min/max 约束。检查命名空间 LimitRange 的 default/min/max 与 Pod 的 requests/limits 是否匹配(尤其是未显式设置 resources 的容器)。",
+    detail: "控制器的拒绝消息符合 LimitRanger 约束格式。请按证据中的资源项检查命名空间 LimitRange 与 Pod 的 requests 和 limits。",
     confidence: 0.85,
     evidence,
     evidence_refs: refs,
