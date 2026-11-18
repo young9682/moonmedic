@@ -1,228 +1,47 @@
-# moonmedic 项目申报书(2026 MoonBit 黑客松 · 十一月赛)
+# moonmedic 评审答复与技术说明
 
-> 本版为评审驳回后的第二轮修订版。
->
-> **对首轮评审意见的回应**(详见 §9):
-> ① “扣除已有客户端与通用 Agent 后,核心只是关键词匹配与模板建议” → 定位调整为确定性证据引擎,并新增结构化 Evidence 引用、诊断分层与数据完整性语义(Day 1–2);
-> ② “未说明 Pod 未创建场景如何取证” → §4 场景一给出 7 步 API 取证链,并以真实 RKE2 集群注入 5 类故障(E01–E05)采集证据、全部通过离线 golden 回放(Day 3–4)。
+[八项项目申报书](项目申报书.md) · [复现及验收](ACCEPTANCE.md) · [评测场景](../eval/README.md)
 
-## 1. 项目名称
+## 对首轮意见的回应
 
-moonmedic —— MoonBit 原生的 Kubernetes 故障证据引擎与可回放基准
+- **扣除客户端和通用 Agent 后的贡献**。MoonBit 核心消费 `ClusterSnapshot`，按 UID 重建工作负载与副本的归属，解释列表可用性，分类创建失败，组合拒绝记录和 ResourceQuota 数值，并输出分层及字段级证据。集群 I/O 和模型接口都在诊断核心之外。
+- **Pod 未创建时的证据来源**。以 `moon run cmd/main -- --deployment <ns> <name> --json` 启动。读取目标 Deployment 和命名空间 ReplicaSet，用 `ownerReferences.uid` 关联。查看归属 ReplicaSet 的 `ReplicaFailure=True / FailedCreate` 条件和相关事件。读取 ResourceQuota 的 `status.used/hard`，同时读取 Pod 列表并按 ReplicaSet UID 核对副本数。Pod 列表不可用或截断时报告证据缺口。E01 实际采集到了控制器失败条件、事件、`used=0 / hard=0` 和零 Pod。
 
-## 2. 项目简介
+## 对第二轮意见的回应
 
-moonmedic 是一个用 MoonBit 编写的 Kubernetes 只读故障诊断引擎。它把集群对象还原为可离线回放的 `ClusterSnapshot`,沿 `Deployment → ReplicaSet → Pod` 的对象图区分两类故障:**Pod 已存在时的运行时故障**,以及 **Pod 未被创建时的准入失败**。对后者,引擎从 ReplicaSet 的 `ReplicaFailure` 条件、命名空间 `FailedCreate` 事件与 ResourceQuota 的 `hard/used` 做数值重建,并从准入错误中识别 LimitRange 拒绝,给出由证据计算出的配额差额与修复建议。
+**约束与取舍。** 同一快照走确定性的 MoonBit 诊断路径。错误归因以已观察到的创建拒绝为输入。配额做请求量与快照用量的数值核对。LimitRange 依据 Kubernetes LimitRanger 的部分错误格式归因。快照中的 LimitRange 对象可供查阅。各准入插件参数的完整复算留待后续。
 
-目标架构中,核心引擎不依赖 kubemoon——kubemoon 仅作为可替换的快照适配器;也不依赖 LLM——LLM 仅作为可选叙述层。所有结论绑定 API 路径、字段与时间戳,可被单测、快照回放和故障注入评测。现有 W1–W4 实现为 MoonBit(native 后端,零 C stub),全程仅发 GET 请求,已在真实 RKE2 集群上完成端到端验证;本轮新增部分沿用同一技术栈。
+| 拒绝记录 | 诊断 |
+|---|---|
+| 符合 ResourceQuota 超限格式，且记录中的同一资源满足请求量大于剩余额度 | `quota_exceeded`。只有快照里同名配额的同一资源也满足该条件时，才附数值证据并提高规则权重。 |
+| `failed quota … must specify` | 保留创建失败机制和原始消息。提示核对必填 requests 或 limits。 |
+| 支持的 Container / Pod LimitRanger min、max 或 ratio 格式 | `limitrange_reject`，输出拒绝消息。 |
+| 通用校验、Webhook、RBAC 等未归类消息 | 保留创建失败和可证实的现象。饱和配额可作为 `related` 提示。 |
 
-当前状态(2026-11-18):W1–W4 与 Phase A/B 全部交付——**51 个测试全过;5 类真实 RKE2 集群注入故障(E01–E05)的 ClusterSnapshot 采集与离线 golden 回放 5/5**;Day-1~5 新增:UID 归属隔离修复、配额归因收窄、ListStatus 数据完整性语义、结构化 Evidence 引用与诊断分层(root_cause/mechanism/symptom/insufficient)。
+已佐证的 `pods` 项可根据 `spec.replicas - owned_pod_count` 推算缺失副本所需配额。建议以快照当前用量为前提，报告引用副本数、归属计数和该配额的 `used/hard`。Pod 计数不可用时省略差额。相同资源也可能同时受多条约束，建议只涉及匹配到的配额。规则权重用于区分证据强弱，未做概率校准。
 
-## 3. 项目方向与通用性说明
+**验证边界。** Pod 与 ReplicaSet 按 UID 关联，工作负载事件目前按目标及归属 ReplicaSet 的对象名归集。时间戳用于查看记录，采集结果未做跨对象时间一致性校验。相同错误格式被第三方插件复用时，需要操作者核对来源。跨 Kubernetes 版本和未列出的准入插件待验证。格式依据见 [Kubernetes v1.33 ResourceQuota](https://github.com/kubernetes/apiserver/blob/v0.33.0/pkg/admission/plugin/resourcequota/controller.go#L561-L575) 与 [LimitRanger](https://github.com/kubernetes/kubernetes/blob/v1.33.0/plugin/pkg/admission/limitranger/admission.go#L284-L348)。
 
-方向:AI 应用 / Kubernetes 运维诊断工具。项目的 AI 部分是可选的叙述层;核心是确定性的故障证据引擎与基准。
+### 反例回归
 
-**3.1 可复用的四层**
+| 快照 | 复查前 | 本轮 CLI 回放 |
+|---|---|---|
+| R01，未饱和配额与 `must specify` | `quota_exceeded`，0.85 | 保留创建失败与零 Pod，配额根因缺席 |
+| R02，通用 `Invalid value` | `limitrange_reject`，0.85 | 保留创建失败与零 Pod，LimitRange 根因缺席 |
+| R03，Webhook 拒绝与饱和配额并存 | `quota_exceeded`，0.7 | 饱和配额为 `related`，配额根因缺席 |
+| R04，拒绝点名的配额与当前资源状态无法对应 | `quota_exceeded`，0.98 | 保留拒绝记录，权重 0.85。当前数值佐证及差额缺席。回归同时设置异名同资源、同名异资源两种干扰。 |
 
-1. `ClusterSnapshot` 快照格式:把 Pod、Deployment、ReplicaSet、Event、ResourceQuota、LimitRange 归一为声明式 JSON。实时集群、`kubectl` 导出、录制文件都只是它的来源,诊断核心不感知传输方式。
-2. 确定性证据引擎:对象图遍历、类型化事件、Quantity 算术、配额约束回放、因果链与证据溯源。纯 MoonBit、无网络依赖,可离线单测。
-3. LLM 叙述层:可选的 OpenAI 兼容客户端,只负责把已有证据归纳成人类可读报告;工具白名单、步数上限、namespace 均由代码固定。
-4. 可回放评测语料:每个故障场景一份快照 + 期望诊断 + golden 断言,可复用于其它 MoonBit 云原生工具。
+E01 至 E04 是此前在 RKE2 注入后由 kubectl 采集的快照。E05 派生自 E01，用不可用的 Pods 列表验证降级。R01 至 R04 为离线反例。**本轮重新执行的是离线 CLI 和断言，结果 9/9，单测 53/53。** 现场采集的参考流程见[评测说明](../eval/README.md)。
 
-**3.2 扣除已有客户端与通用 Agent 之后剩下什么**
+## 外部基线
 
-- 扣除 kubemoon:剩下 `ClusterSnapshot` 格式、对象图重建、准入失败重建、Quantity 算术、因果链与评测语料。改版后,`core` 包不 import kubemoon,删除适配器后仍可编译并跑完全部 fixture 测试。
-- 扣除 LLM:剩下确定性规则层、证据链、由数值计算出的修复建议、离线报告。LLM 不可用不影响诊断成立。
-- 剩余能力不是“六条状态判断”,而是“对 Kubernetes 准入与运行时失败做证据重建”的引擎;新增约束优先新增数据与断言,而不是新增特殊分支。
+外部能力来自官方资料。表中 moonmedic 的输出来自本轮回放。外部工具在相同场景下的覆盖率、延迟及人工操作量仍待实测。
 
-**3.3 可迁移性**
+| 工具 | 官方能力或本轮实测 | 对照维度 |
+|---|---|---|
+| kubectl | `describe` 展示资源详情和相关事件。评测集通过 `get -o json` 获取原始快照数据。[官方命令文档](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_describe/) | 多对象原始取证与人工核对 |
+| K8sGPT | 资源分析器可以关闭 AI 解释，也支持按资源过滤。[官方文档](https://docs.k8sgpt.ai/reference/cli/serve-mode/) | 同一 Deployment 的分析器结果与关闭模型解释时的输出 |
+| HolmesGPT | 提供 Kubernetes 调查工具，并公开持续运行的评测与结果。[Kubernetes 工具](https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes/) · [官方评测](https://holmesgpt.dev/latest/development/evaluations/) | 同类证据能否保留及基准覆盖 |
+| moonmedic | E01、E02 回放验证配额差额和证据字段。R01 至 R04 验证拒绝分流及弃权。 | MoonBit 可复用快照与证据接口、固定输入的离线可验证输出 |
 
-“快照 → 对象图 → 约束回放 → 因果链 → 证据绑定报告”的范式可平移到数据库巡检、日志分析、CI 失败归因等其它运维场景;LLM 始终只做叙述,不进入证据生成路径。
-
-**3.4 非目标**
-
-- 不对集群做任何写操作(不 restart / scale / patch / delete,修复建议只输出不执行);
-- 不做 Web UI / TUI,本期以 CLI 与可回放 JSON 输出为主;
-- 不做多集群管理与告警接入;
-- 不宣称 LLM 诊断准确率;可验证的是确定性规则层与证据链。
-
-## 4. 预期使用场景
-
-**场景一|配额超限导致 Pod 未创建(本轮重点)**
-
-发布后 Deployment 期望 2 个副本,但集群里一个新 Pod 都没有。`kubectl get pods` 只能看到“没有 Pod”,看不到原因。moonmedic 执行:
-
-```
-moon run cmd/main -- --deployment prod payments-api
-# 或:moon run cmd/main -- prod payments-api(Pod 404 后自动切换工作负载诊断)
-```
-
-取证链:
-
-1. `GET /apis/apps/v1/namespaces/prod/deployments/payments-api`:取 `metadata.uid`、`spec.replicas`、`status.conditions`;
-2. `GET /apis/apps/v1/namespaces/prod/replicasets`:按 `metadata.ownerReferences[].uid == Deployment.uid` 客户端过滤;
-3. 读取 ReplicaSet `status.conditions[type=ReplicaFailure]`,取 `reason=FailedCreate` 与 `message`;
-4. `GET /api/v1/namespaces/prod/events`:过滤 `involvedObject.kind=ReplicaSet`、`reason=FailedCreate`,保留 `count`、`lastTimestamp`;
-5. `GET /api/v1/namespaces/prod/resourcequotas`:解析 `status.hard` 与 `status.used`,找出 `used >= hard` 的资源并计算差额;
-6. `GET /api/v1/namespaces/prod/pods`:按 ownerReference 统计,确认该 ReplicaSet 下 Pod 数为 0;
-7. 输出因果链:配额耗尽(根因)→ ReplicaSet FailedCreate(机制)→ 0 个 Pod(现象)。
-
-报告中的建议由证据计算,而不是模板。例如:
-
-```
-ResourceQuota/compute: pods used=10, hard=10
-Deployment/payments-api: spec.replicas=2
-ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
-结论: 还差 2 个 pods 配额;将 hard 提高到 ≥12,或缩容 2 个现有 Pod
-```
-
-所有请求均为 GET;任一数据源因 RBAC 不可读时,报告显式标注“证据缺失”,不静默降级。
-
-**场景二|生产 Pod 反复重启**
-
-值班收到告警 → `moon run cmd/main -- prod payments-api-7d9f6b-x2k9l` → 引擎读取 Pod 状态机、事件与日志 → 报告:上次终止 OOMKilled(exit 137)、内存 limit 256Mi、已重启 12 次 → 规则 `oomkilled_limit` 给出初诊,LLM 可选的归纳补充泄漏排查建议。Pod 已存在,走运行时路径。
-
-**场景三|发版后 Pending / 镜像拉取失败 / 探针失败**
-
-- Pending:读取 `FailedScheduling` 事件,报告节点资源或配额缺口(`sched_insufficient`);
-- ImagePullBackOff:区分 `manifest unknown`(镜像名/tag 错误,`image_pull_tag`)与 `denied / authentication required`(凭据问题,`image_pull_secret`);
-- 探针失败:识别 kubelet `Unhealthy` 事件(`probe_fail`),提示路径/端口/启动慢。
-
-以上运行时规则已有单测;配额场景与 LimitRange 场景已在真实 RKE2 集群上注入采集并全部通过离线 golden 回放(E01–E05,见 §5.7)。
-
-## 5. 拟实现的核心功能
-
-**5.1 快照 IR 与适配器边界**
-
-- `ClusterSnapshot`:对象、事件、配额、LimitRange 的声明式表示;
-- `tools`:唯一的 kubemoon 适配器包,负责 GET → Snapshot;
-- `snapshot.ClusterSnapshot::from_json`:离线 fixture 适配器;
-- `core`:零 kubemoon、零 LLM 依赖,输入 Snapshot,输出 Diagnosis。CI 已检查 `core`/`rules`/`snapshot` 不得依赖 kubemoon 或 LLM。
-
-**5.2 对象图与两条诊断路径**
-
-- Pod 存在:运行时路径,读取 status、containerStatuses、Events、日志;
-- Pod 不存在:准入路径,从 Deployment 出发,沿 `ownerReferences.uid` 找 ReplicaSet,再按 ownerReference 统计 Pod 数;
-- 自动切换:Pod GET 404 时尝试同名 Deployment,并在报告中注明“目标 Pod 不存在,已切换工作负载诊断”。
-
-**5.3 准入失败重建与 Quantity 算术**
-
-- 配额约束回放:用 ResourceQuota 的 `hard/used` 做数值比较,输出饱和资源与百分比;
-- LimitRange 拒绝:从 `FailedCreate` 的 min/max 信息识别;完整的 min/max/default 逐条回放列为 Phase B;
-- Quantity 解析与比较:`10`、`500m`、`64Mi`、`4Gi`、`2G`、`1e3`,计算配额百分比、差额与“还能创建几个 Pod”;
-- 反事实建议:对 `pods` 资源计算“还差几个、hard 提高到多少”;requests.cpu/memory 的模板累加列为 Phase B。
-
-**5.4 类型化事件、因果链与仲裁**
-
-- 事件解析为 `EventFact{reason, message, event_type, involvedObject, count, lastTimestamp}`,优先匹配 API 类型字段,消息文本只做兼容兜底;
-- 工作负载规则形成因果链:根因(配额/LimitRange)→ 机制(ReplicaSet FailedCreate)→ 现象(0 Pod);
-- 规则仲裁:强规则命中时压制弱警告(例如 `quota_exceeded` 命中后不再重复输出 `quota_at_capacity`);
-- 证据缺失:任一数据源不可读时记录缺口,并降低置信度而非编造结论。
-
-**5.5 只读护栏与 LLM 叙述层**
-
-- 工具集只含只读操作,代码层不存在写路径;namespace 由 CLI 固定,LLM 不可控;
-- 确定性路径已新增 get_deployment / list_replicasets_json / list_quotas_json / list_events_json 等只读读取;Agent 循环的 LLM 工具白名单仍为 get_pod / get_events / get_logs / list_pods,工作负载取证由确定性路径完成,Agent 扩展列为 Phase C;
-- LLM 结论需引用证据编号;未引用时标注“未绑定证据”,不影响确定性报告的成立;
-- LLM 不可用、超时或输出不合规时,自动降级为纯规则报告。
-
-**5.6 CLI 与报告**
-
-- `moon run cmd/main`:列出 namespace 内 Pod;
-- `moon run cmd/main -- <ns> <pod>`:诊断 Pod;Pod 不存在时自动尝试同名 Deployment;
-- `moon run cmd/main -- --deployment <ns> <name>`:诊断工作负载;
-- `--json`:输出机器可读诊断,供评测脚本断言;
-- 环境变量:集群入口、Token/CA、LLM 端点;所有诊断只发 GET。
-
-**5.7 已交付与本轮补强**
-
-| 能力 | W1–W4 已交付 | Phase A 已交付 | Phase B 目标 |
-|---|---|---|---|
-| Pod 运行时诊断 | 6 条规则、18 个单测、真机 e2e | 扩展至 51 个测试(含结构化 Evidence) | 基准与更多场景 |
-| 对象图 / 准入失败 | 无 | 快照 IR、Deployment→RS→Pod、配额数值重建 + LimitRange 识别 | 补 StatefulSet/DaemonSet、完整 LimitRange 回放 |
-| CLI | 列 Pod、诊断 Pod | `--deployment`、`--json`、404 自动切换 | golden/评测脚本集成 |
-| 评测 | 单测 + CI | core 离线单测 + CI 依赖边界 | **已落地:真实 RKE2 注入 5 场景 + golden 回放 5/5**;录制回放与基准为后续 |
-| 测试规模 | 18 | 38 → **51** | 50+(以有效覆盖为准) |
-| 规则规模 | 6 条 Pod 规则 | **13 条**(Pod 6 + 工作负载/准入 6 + insufficient_evidence),全部绑定结构化 Evidence | 保持并补数据 |
-
-**5.8 开发与验证闭环**
-
-- fixture 回归:数量解析、事件解析、配额饱和、LimitRange、缺 Pod 因果链、规则仲裁、JSON 输出;
-- 本地假 API Server 验证:完整跑通 Deployment → ReplicaSet → FailedCreate →
-  ResourceQuota → 0 Pod 的链路,不依赖真实集群;
-- kind 故障注入(Phase B):配额为 0、LimitRange 拒绝、OOM、Pending、镜像 tag、镜像凭据、探针、CrashLoop;
-- LLM 录制回放(Phase B):CI 无 API key 也能跑端到端结构断言;
-- 基准(Phase B):确定性诊断延迟、LLM token 消耗、场景命中率;
-- 证据校验(Phase B):LLM 结论与证据编号的一致性检查;
-- 已发现并修复的真实问题:
-  1. `get_pod` 传 `ns/pod` 全名返回 404,暴露工具参数契约不清;
-  2. 多容器 Pod 不带 container 读日志被 API 拒绝,修正为首容器选择;
-  3. kubemoon 0.1.1 无 fieldSelector/subresource,需客户端过滤与手工拼路径;
-  4. LLM 曾试图用 OOM 解释 `Error(exit 1)`,被“只依据证据”的提示词拦住;
-  5. 网络连接失败时 `OSError` 未捕获,CLI 直接崩溃;已加 `try/catch` 边界并降级;
-  6. 配额证据字符串缺少 MoonBit 插值,输出字面量 `{used}`;已修复并加断言;
-  7. 命名空间事件未按目标过滤,可能把别的 Pod/工作负载事件算进来;已按
-     `involvedObject.name` 限定到目标 Pod,并进一步限定到
-     `ownerReferences.uid == Deployment.uid` 的 ReplicaSet;
-  8. 配额差额按 `spec.replicas` 计算,部分 Pod 已创建时会高估;已改为
-     `desired - pod_count`,只计算还缺的副本。
-
-**5.9 未完成事项与范围变化**
-
-- Phase A(核心分离 + 准入路径 + CLI)已落地;**Phase B 评测集已落地**(真实 RKE2 注入 E01–E05 + golden 回放,见 §5.7);
-- 尚未完成、如实标注:kind/CI 化注入(本轮以真实集群替代)、LLM 证据编号校验、CPU/内存配额回放、LimitRange 完整约束回放、StatefulSet/DaemonSet(Phase C);
-- 不把 kubemoon 的能力算作本项目原创;不把 LLM 的叙述能力算作诊断证据。
-
-## 6. 项目性质
-
-原创项目:全部 MoonBit 代码为本仓库原创实现,非移植、非 fork。kubemoon 仅作为集群访问适配器,mizchi/llm 仅作为 agent 线格式参考;两者的能力边界已在 §5.1、§7 明确标注,不计入本项目原创贡献。
-
-## 7. 参考项目说明
-
-**依赖与参考**
-
-- 集群访问:[cxh04/kubemoon](https://mooncakes.io/docs/cxh04/kubemoon)(Apache-2.0),作为可替换的快照适配器;
-- 异步 HTTP:[moonbitlang/async](https://mooncakes.io/docs/moonbitlang/async)(Apache-2.0);
-- agent 线格式与消息簿记:参考 [mizchi/llm](https://github.com/mizchi/llm)(MIT)的 `run_json_chat_loop`,并适配为异步实现;仅参考设计,不复制其诊断逻辑。
-
-**外部基线对照**
-
-| 方案 | 形态 | 确定性 | 离线 | 可回放 | 准入失败重建 |
-|---|---|---|---|---|---|
-| kubectl describe/logs/events | 人工命令 | 是 | 是 | 公开资料未见统一语料 | 否 |
-| k8sgpt | 分析器 + LLM 后端 | 依赖模型 | 依赖模型端点 | 公开资料未见故障回放语料 | 未强调 |
-| HolmesGPT | Agent + 工具 | 依赖模型 | 依赖模型与集群 API | 公开资料未见故障回放语料 | 未强调 |
-| **moonmedic** | **确定性引擎 + 可选 LLM** | **核心确定** | **是** | **快照/回放语料** | **是** |
-
-差异定位:上述对照基于截至申报时的公开资料,本项目不宣称全面优于这些工具,而是在“确定性、离线、可回放、准入失败重建”四个轴上填补 MoonBit 生态与现有 K8s 诊断工具之间的缺口。
-
-## 8. GitHub 仓库链接
-
-https://github.com/young9682/moonmedic
-
-main 分支已含 60+ 个有效 commits(持续增长)(W0 计划 → W1 连通 → W2 规则引擎 → W3 LLM 归纳 → W4 Agent 循环 → Phase A 准入诊断 → Day1–5 正确性/数据完整性/结构化 Evidence/评测集 → 文档),全部为功能或文档的实质提交,无空提交、无意义拆分或重复提交;所有变更经 PR 合并,提交、评审与 CI 记录完整可追溯。
-
-### 本项目由 young86 开发,最终解释权归于 young86
-
-## 9. 对首轮评审意见的回应
-
-**意见一:“扣除已有客户端与通用 Agent 能力,核心仍主要是状态/关键词匹配及模板建议,工程深度不足。”**
-
-回应:已按“确定性证据引擎”重构并补足四层工程深度,且逐项有测试与真集群证据:
-
-1. **对象图而非关键词**:Pod 计数与事件归属按 `ownerReferences.uid` 严格过滤(跨工作负载干扰回归测试:外来 3 个健康 Pod 不污染目标计数,E04 真集群验证);
-2. **数值约束回放而非模板**:K8s Quantity 算术(10/500m/64Mi/4Gi/2G/1e3)+ `status.used/hard` 饱和判定 + 配额差额反事实计算("还差 2 个;hard 提高到 ≥12");
-3. **数据完整性语义**:ListStatus(Available/Empty/Unavailable/Truncated)——"API 读取失败"不再等价于"空列表";不可用时 `workload_no_pods` 与配额佐证路径自动降级(e05 验证);
-4. **结构化 Evidence + 诊断分层**:13 条规则全部引用 `{对象, 字段路径, 观测值}` 级证据;JSON 契约含 layer(root_cause/mechanism/symptom/insufficient),可被 CI 断言(eval/scripts/assert.py);
-5. **负向测试**:forbidden-only、纯 FailedCreate、非 quota ReplicaFailure × 不饱和配额 → 均不触发配额根因(关键词匹配的误报路径已被测试封锁)。
-
-**意见二:“未说明 Pod 未创建场景如何取得诊断证据。”**
-
-回应:§4 场景一给出 7 步只读取证链(逐条列出 API 路径与过滤条件),并已用**真实集群注入**端到端验证:
-
-- E01(配额 pods=0):kubectl 采集到 ReplicaSet `ReplicaFailure=True`、`FailedCreate` 事件("exceeded quota: zero-pods, requested: pods=1, used: pods=0, limited: pods=0")与 `status.used/hard`,诊断输出 quota_exceeded(root_cause)+ workload_no_pods(现象)+ deployment_stalled,全部绑定 evidence_refs;
-- E02(配额 1/期望 2):部分副本场景,缺失副本计算改为 `desired - pod_count`;
-- e03(LimitRange):真实事件措辞为 "maximum memory usage per Container is 64Mi"(不含 "LimitRange" 字样),limitrange_reject 正确命中且 quota_exceeded 正确缺席——这正是"数值与语义归因"优于纯关键词匹配的实证;
-- E04/E05:归属隔离与证据不完整降级,均在真集群采集的快照上回放验证。
-
-评测快照、期望诊断与断言脚本随仓库提供(eval/),可离线复现。
+作者：young86

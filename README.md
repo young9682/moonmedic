@@ -2,7 +2,7 @@
 
 > MoonBit 写的 Kubernetes 故障证据引擎 —— 给集群请一位会取证的医生。
 
-**2026 MoonBit 黑客松 · 十一月赛参赛项目**(W1–W4 + Phase A + Phase B 评测集已交付;MoonBit 实现占比 96.7%:5034 行 MoonBit,评测胶水仅 169 行脚本)
+**2026 MoonBit 黑客松 · 十一月赛参赛项目** · [申报书](docs/项目申报书.md) · [验收与复现](docs/ACCEPTANCE.md)
 
 [![ci](https://github.com/young9682/moonmedic/actions/workflows/ci.yml/badge.svg)](https://github.com/young9682/moonmedic/actions/workflows/ci.yml)
 
@@ -15,10 +15,10 @@
 moonmedic:
   ├─ Pod 不存在,已切换为同名 Deployment 诊断
   ├─ Deployment 期望 2 个副本,归属 Pod 数 0
-  ├─ ReplicaSet/payments-api-7d9f6b: FailedCreate ×3
+  ├─ ReplicaSet/payments-api-7d9f6b: FailedCreate · exceeded quota: compute, requested: pods=1
   ├─ ResourceQuota/compute: pods used=10, hard=10(100%)
   └─ 结论: 配额耗尽,Pod 根本没被创建
-          还差 2 个 pods 配额;将 hard 提高到 ≥12,或缩容 2 个现有 Pod
+          按快照用量估算还差 2 个 pods 配额，需 hard ≥12
 ```
 
 如果是已经在运行的 Pod,则走运行时路径:
@@ -52,8 +52,8 @@ ClusterSnapshot →│ core(确定性证据引擎)       │→ Diagnosis
 3. **运行时规则** —— 6 条 Pod 规则(OOMKilled / CrashLoop exit 1 /
    FailedScheduling / 镜像 tag / 镜像凭据 / 探针失败)。
 4. **结构化证据引用** —— 每条 Finding 附 `evidence_refs`(source / 对象 /
-   字段路径 / 观测值 / 时间戳),JSON 契约含诊断分层
-   (`root_cause` / `mechanism` / `symptom` / `insufficient`),供 CI 断言与审计。
+   字段路径 / 观测值 / 可用时间戳),JSON 契约含诊断分层
+   (`root_cause` / `mechanism` / `symptom` / `insufficient` / `related`),供 CI 断言与审计。
 5. **LLM 叙述层(可选)** —— 兼容任意 OpenAI 接口端点,只负责把已有证据
    归纳成人话;LLM 不可用时自动降级为纯规则报告。
 
@@ -62,13 +62,12 @@ ClusterSnapshot →│ core(确定性证据引擎)       │→ Diagnosis
 | 路径 | 触发条件 | 证据源 | 典型结论 |
 |---|---|---|---|
 | 运行时 | Pod 存在 | Pod status、containerStatuses、Events、日志 | OOM、CrashLoop、探针、镜像拉取、Pending |
-| 准入 | Pod 不存在或归属 Pod 数 0 | Deployment/RS 条件、FailedCreate 事件、ResourceQuota、LimitRange | 配额耗尽、LimitRange 拒绝、控制器创建失败 |
+| 工作负载 | 指定 Deployment，包括零 Pod 与部分副本 | Deployment/RS 条件、FailedCreate 事件、ResourceQuota、归属 Pod 列表 | 配额超限、LimitRange 拒绝、控制器创建失败 |
 
 ### 设计原则
 
 - **只读护栏**:工具集只含 GET,不对集群做任何变更;修复建议只输出,不执行
-- **证据优先**:每条结论绑定 API 路径、字段与时间戳;建议由数值差额计算,
-  不是固定模板
+- **证据优先**：报告绑定对象、字段与观测值。配额差额基于明确拒绝、同名同资源的状态及可信的归属 Pod 计数。
 - **确定性内核**:LLM 不产生证据;没有 LLM 也能得到完整因果链
 - **优雅降级**:数据源不可读时在“数据完整性说明”中明确标注,不静默丢失
 - **可回放**:快照 + 期望诊断可离线复现,便于回归与评测
@@ -93,7 +92,7 @@ ClusterSnapshot →│ core(确定性证据引擎)       │→ Diagnosis
 | W3 | LLM 单轮归纳(OpenAI 兼容,可降级) | ✅ |
 | W4 | Agent 工具循环 + CI + 文档打磨 | ✅ |
 | Phase A | 快照 IR、对象图、配额数值重建 + LimitRange 识别、`--deployment`、`--json` | ✅ |
-| Phase B | 评测集:真实集群(RKE2)注入 E01–E05 采集 + golden 离线回放 | ✅ |
+| Phase B | RKE2 采集 E01–E04、缺证据派生 E05、反例 R01–R04 离线回放 | ✅ |
 | Phase C | StatefulSet/DaemonSet、节点容量、上一容器日志、日志签名 | 可选 |
 
 ## 开发
@@ -150,17 +149,15 @@ moon run cmd/main -- prod payments-api
 ```bash
 moon fmt --check   # 格式
 moon check         # 类型检查
-moon test          # 51 个测试(规则 / Quantity / 事件 / 快照 / core / agent / 报告)
+moon test          # 53 个测试
+bash eval/scripts/run-all.sh
 ```
 
-CI(`.github/workflows/ci.yml`,Ubuntu)在每次 push 与 PR 上运行以上三步,
-并额外检查 `core`、`rules`、`snapshot` 不得依赖 kubemoon 或 LLM。
+CI 在 main 推送和 PR 上运行以上检查，并检查 `core`、`rules`、`snapshot` 的依赖边界。
 
 ## 评测
 
-评测集见 [eval/README.md](eval/README.md):**5 个真实集群注入场景**
-(隔离 namespace + `kubectl -o json` 采集为 ClusterSnapshot,非手写 JSON)
-+ 离线 golden 回放(`run-all.sh`,无集群/无网络/无 LLM):
+评测集包括 **4 份从 RKE2 注入后采集的快照、1 份缺证据派生快照、4 份误报回归快照**。离线回放使用已准备好的构建依赖，无需集群和模型端点。详见[场景和断言](eval/README.md)。
 
 | 场景 | 注入 | 验证点 | 结果 |
 |---|---|---|---|
@@ -170,12 +167,11 @@ CI(`.github/workflows/ci.yml`,Ubuntu)在每次 push 与 PR 上运行以上三步
 | e04 | 同 ns 存在健康外来工作负载 | 归属隔离:目标 Pod 计数仍为 0 | PASS |
 | e05 | Pods 源标记 unavailable | insufficient_evidence 降级 | PASS |
 
-指标口径如实报告分子/分母:场景通过率 5/5;单元测试 51/51;
-e05 基于 e01 真实快照派生(Pods 源标记 unavailable)。
+R01–R04 覆盖缺资源声明、通用校验、Webhook 与配额饱和共存，以及配额名称或资源项不匹配。离线回放 9/9，单测 53/53。
 
 ## 限制
 
-- LimitRange 完整约束回放(min/max 逐项)为后续计划;当前由事件措辞识别
+- LimitRange 依据支持的上游拒绝句式归因。插件参数复算、跨版本验证和事件时间一致性校验为后续范围。
 - CPU/内存配额差额需 PodTemplate requests 求和,暂未实现(pods 计数已实现)
 - 快照为单 namespace 视角;调度器级节点资源分析未覆盖
 - sched_insufficient / probe_fail 暂为文本证据(v1 限制,已标注)
