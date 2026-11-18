@@ -263,20 +263,17 @@ test "pods recommendation counts only missing replicas" {
 }
 
 ///|
-test "quota_exceeded without FailedCreate does not claim one" {
+test "saturation and zero Pods do not establish quota as a cause" {
   let facts = workload_fixture_facts(
     @json.parse(REPLICASET_HEALTHY),
     @json.parse(QUOTA_COMPUTE),
     [],
     pod_count=0,
   )
-  let findings = @rules.run_all_workload(facts)
-  inspect(findings[0].rule_id, content="quota_exceeded")
-  inspect(
-    findings[0].detail.contains("未读取到 FailedCreate"),
-    content="true",
-  )
-  inspect(findings[0].detail.contains("控制器已报告"), content="false")
+  let ids = finding_rule_ids(facts)
+  inspect(list_contains(ids, "quota_exceeded"), content="false")
+  inspect(list_contains(ids, "quota_at_capacity"), content="true")
+  inspect(list_contains(ids, "workload_no_pods"), content="true")
 }
 
 ///|
@@ -353,8 +350,7 @@ test "EventFact parses typed reason and involvedObject" {
 }
 
 ///|
-/// Fixture: unsaturated quota — used 3 of hard 10. Saturation alone gates the
-/// quota root cause; without it, only quota-mentioning evidence counts.
+/// Fixture: unsaturated quota with 3 of 10 Pods in use.
 const QUOTA_COMPUTE_UNSATURATED = "{\"metadata\":{\"name\":\"compute\"},\"status\":{\"hard\":{\"pods\":\"10\"},\"used\":{\"pods\":\"3\"}}}"
 
 ///|
@@ -426,7 +422,7 @@ test "plain FailedCreate event alone does not claim quota exhaustion" {
 }
 
 ///|
-test "quota-mentioning ReplicaFailure still corroborates on saturated quota" {
+test "explicit quota denial in a ReplicaFailure condition is enough to attribute" {
   let facts = quota_fixture_facts([])
   let ids = finding_rule_ids(facts)
   inspect(list_contains(ids, "quota_exceeded"), content="true")
