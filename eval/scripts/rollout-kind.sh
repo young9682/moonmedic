@@ -56,11 +56,11 @@ for _ in {1..20}; do curl -fsS http://127.0.0.1:8001/version >/dev/null && break
 MOONMEDIC_SERVER=http://127.0.0.1:8001 moon run cmd/main -- --deployment "$ns" web --json >"$out/live-diagnosis.json"
 jq -e 'any(.findings[]; .rule_id=="rollout_blocked")' "$out/live-diagnosis.json" >/dev/null
 # Predict the effect of the one-field change before submitting it to the controller.
-jq '.deployment.spec.strategy.rollingUpdate.maxUnavailable=1' "$out/blocked.json" >"$out/counterfactual.json"
+jq '.quotas[0].spec.hard.pods="5" | .quotas[0].status.hard.pods="5"' "$out/blocked.json" >"$out/counterfactual.json"
 moon run cmd/main -- --snapshot "$out/counterfactual.json" --json >"$out/recovery-prediction.json"
 jq -e 'any(.findings[]; .rule_id=="rollout_reachable")' "$out/recovery-prediction.json" >/dev/null
-"${k[@]}" patch deployment web -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1}}}}'
-if ! "${k[@]}" rollout status deployment/web --timeout=540s; then
+"${k[@]}" patch quota slots -p '{"spec":{"hard":{"pods":"5"}}}'
+if ! "${k[@]}" rollout status deployment/web --timeout=240s; then
   capture recovery-timeout
   "${k[@]}" get rs,pods,quota -o wide
   "${k[@]}" get events --sort-by=.metadata.creationTimestamp
@@ -73,7 +73,8 @@ for _ in {1..30}; do
   sleep 2
 done
 jq -e '.deployment.status.updatedReplicas==3 and .deployment.status.availableReplicas==3
- and (.quotas[0].status.hard.pods=="4" and .quotas[0].status.used.pods=="4")
+ and (.quotas[0].status.hard.pods=="5" and .quotas[0].status.used.pods=="4")
+ and .deployment.spec.strategy.rollingUpdate.maxUnavailable==0
  and (.pods|length)==4 and all(.pods[]; .metadata.deletionTimestamp==null)
  and any(.replicasets[]; .spec.template.metadata.annotations["test-revision"]=="new" and .status.availableReplicas==3)
  and all(.replicasets[] | select(.spec.template.metadata.annotations["test-revision"]!="new"); .spec.replicas==0)' "$out/recovered.json" >/dev/null
