@@ -78,6 +78,8 @@ jq -e '.deployment.status.updatedReplicas==3 and .deployment.status.availableRep
  and (.pods|length)==4 and all(.pods[]; .metadata.deletionTimestamp==null)
  and any(.replicasets[]; .spec.template.metadata.annotations["test-revision"]=="new" and .status.availableReplicas==3)
  and all(.replicasets[] | select(.spec.template.metadata.annotations["test-revision"]!="new"); .spec.replicas==0)' "$out/recovered.json" >/dev/null
+moon run cmd/main -- --snapshot "$out/recovered.json" --json >"$out/final-diagnosis.json"
+jq -e 'any(.findings[]; .rule_id=="rollout_reachable" and (.detail|contains("已达到替换目标")))' "$out/final-diagnosis.json" >/dev/null
 for phase in before blocked recovered; do
   jq -c --arg phase "$phase" '{phase:$phase,quota:.quotas[0].status,rs:[.replicasets[]|{name:.metadata.name,desired:.spec.replicas,available:(.status.availableReplicas//0)}]}' "$out/$phase.json"
 done

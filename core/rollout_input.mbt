@@ -201,7 +201,6 @@ fn rollout_finding(
   let desired = count(field(field(new_rs, "spec"), "replicas"))
   let available = status_count(new_rs, "availableReplicas")
   guard used == total &&
-    old > 0 &&
     old <= replicas &&
     old == count(field(field(old_rs, "spec"), "replicas")) &&
     old == status_count(old_rs, "availableReplicas") &&
@@ -232,7 +231,16 @@ fn rollout_finding(
     return "已检查 \{visited} 个状态。终点占用 \{occupied}/\{hard}，新版期望/实际 \{state.desired}/\{state.live}，可用 \{state.old+state.available}，最低可用 \{replicas-policy.unavailable}。"
   }
   let (rule_id, detail, path) = match rollout_search(policy, initial, false) {
-    Path(path) => ("rollout_reachable", "存在完成替换的路径。", path)
+    Path(path) =>
+      (
+        "rollout_reachable",
+        if path.is_empty() {
+          "快照中已达到替换目标。"
+        } else {
+          "存在完成替换的路径。"
+        },
+        path,
+      )
     SearchLimit => return Err("搜索达到状态上限")
     Blocked(visited, last) =>
       if other_retiring > 0 {
