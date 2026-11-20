@@ -32,7 +32,7 @@ test "healthy starts agree with the first replacement criterion" {
               let possible = unavailable > 0 || (surge > 0 && slot)
               match rollout_search(policy, start, allow_release) {
                 Path(_) => assert_true(possible)
-                Blocked => assert_false(possible)
+                Blocked(_, _) => assert_false(possible)
                 SearchLimit => fail("small search exceeded its budget")
               }
             }

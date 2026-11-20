@@ -222,11 +222,19 @@ fn rollout_finding(
     fixed_other: used - old - live - retiring - other_retiring,
   }
   let initial = { old, desired, live, available, retiring, other_retiring, }
-  let assumption = "假定其他常驻负载不变，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。"
+  let assumption = "假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。"
+  fn frontier(visited : Int32, state : RollState) -> String {
+    let occupied = policy.fixed_other +
+      state.old +
+      state.live +
+      state.retiring +
+      state.other_retiring
+    return "已检查 \{visited} 个状态。终点占用 \{occupied}/\{hard}，新版期望/实际 \{state.desired}/\{state.live}，可用 \{state.old+state.available}，最低可用 \{replicas-policy.unavailable}。"
+  }
   let (rule_id, detail, path) = match rollout_search(policy, initial, false) {
     Path(path) => ("rollout_reachable", "存在完成替换的路径。", path)
     SearchLimit => return Err("搜索达到状态上限")
-    Blocked =>
+    Blocked(visited, last) =>
       if other_retiring > 0 {
         match rollout_search(policy, initial, true) {
           Path(path) =>
@@ -234,10 +242,11 @@ fn rollout_finding(
               "rollout_release_required", "仅在外部终止 Pod 释放名额后存在完成路径。",
               path,
             )
-          Blocked =>
+          Blocked(released_count, released_last) =>
             (
               "rollout_blocked",
-              "允许外部终止 Pod 释放名额后仍无法完成替换。",
+              "允许外部终止 Pod 释放名额后仍无法完成替换。" +
+              frontier(released_count, released_last),
               [],
             )
           SearchLimit => return Err("搜索达到状态上限")
@@ -245,7 +254,8 @@ fn rollout_finding(
       } else {
         (
           "rollout_blocked",
-          "在当前可用副本下限与配额约束下，穷尽可达状态仍无法完成替换。",
+          "在当前可用副本下限与配额约束下无法完成替换。" +
+          frontier(visited, last),
           [],
         )
       }

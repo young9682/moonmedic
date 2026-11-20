@@ -7,6 +7,11 @@
           "object_name": "slots",
           "field_path": "status"
         }
+      ],
+      "detail_contains": [
+        "已检查 2 个状态",
+        "新版期望/实际 2/0",
+        "最低可用 3"
       ]
     }
   },

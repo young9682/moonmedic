@@ -22,7 +22,7 @@ priv struct RollPolicy {
 ///|
 priv enum RollResult {
   Path(Array[String])
-  Blocked
+  Blocked(Int32, RollState)
   SearchLimit
 }
 
@@ -39,6 +39,7 @@ fn rollout_search(
   let seen : Map[RollState, Bool] = Map([])
   seen[start] = true
   let mut i = 0
+  let mut terminal = start
   while i < states.length() {
     let s = states[i]
     if s.available == p.replicas && s.old == 0 && s.retiring == 0 {
@@ -54,7 +55,9 @@ fn rollout_search(
     if states.length() >= 10000 {
       return SearchLimit
     }
+    let mut can_move = false
     fn enqueue(action : String, next : RollState) -> Unit {
+      can_move = true
       if !seen.contains(next) {
         seen[next] = true
         states.push(next)
@@ -91,9 +94,12 @@ fn rollout_search(
         other_retiring: s.other_retiring - 1,
       })
     }
+    if !can_move {
+      terminal = s
+    }
     i = i + 1
   }
-  Blocked
+  Blocked(states.length(), terminal)
 }
 
 ///|
