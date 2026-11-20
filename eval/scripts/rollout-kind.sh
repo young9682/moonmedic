@@ -47,9 +47,11 @@ for _ in {1..60}; do
 done
 capture blocked
 jq -e 'any(.replicasets[].status.conditions[]?; .reason=="FailedCreate" and (.message|contains("exceeded quota")))' "$out/blocked.json" >/dev/null
+"${k[@]}" get rs --watch -o custom-columns='NAME:.metadata.name,VERSION:.metadata.resourceVersion,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas' >"$out/rs-transitions.txt" &
+watcher=$!
 kubectl proxy --address=127.0.0.1 --port=8001 >"$out/proxy.log" 2>&1 &
 proxy=$!
-trap 'kill "$proxy" 2>/dev/null || true' EXIT
+trap 'kill "$proxy" "$watcher" 2>/dev/null || true' EXIT
 for _ in {1..20}; do curl -fsS http://127.0.0.1:8001/version >/dev/null && break; sleep 1; done
 MOONMEDIC_SERVER=http://127.0.0.1:8001 moon run cmd/main -- --deployment "$ns" web --json >"$out/live-diagnosis.json"
 jq -e 'any(.findings[]; .rule_id=="rollout_blocked")' "$out/live-diagnosis.json" >/dev/null
@@ -59,9 +61,15 @@ moon run cmd/main -- --snapshot "$out/counterfactual.json" --json >"$out/recover
 jq -e 'any(.findings[]; .rule_id=="rollout_reachable")' "$out/recovery-prediction.json" >/dev/null
 "${k[@]}" patch deployment web -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1}}}}'
 "${k[@]}" rollout status deployment/web --timeout=240s
-capture recovered
+for _ in {1..30}; do
+  capture recovered
+  if jq -e '(.pods|length)==4 and .quotas[0].status.used.pods=="4"
+    and all(.pods[]; .metadata.deletionTimestamp==null)' "$out/recovered.json" >/dev/null; then break; fi
+  sleep 2
+done
 jq -e '.deployment.status.updatedReplicas==3 and .deployment.status.availableReplicas==3
- and (.quotas[0].status.hard.pods=="4")
+ and (.quotas[0].status.hard.pods=="4" and .quotas[0].status.used.pods=="4")
+ and (.pods|length)==4 and all(.pods[]; .metadata.deletionTimestamp==null)
  and any(.replicasets[]; .spec.template.metadata.annotations["test-revision"]=="new" and .status.availableReplicas==3)
  and all(.replicasets[] | select(.spec.template.metadata.annotations["test-revision"]!="new"); .spec.replicas==0)' "$out/recovered.json" >/dev/null
 for phase in before blocked recovered; do

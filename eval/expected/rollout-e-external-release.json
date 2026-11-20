@@ -6,6 +6,11 @@
         {
           "object_name": "slots",
           "field_path": "status"
+        },
+        {
+          "resource_kind": "Pod",
+          "object_name": "other",
+          "field_path": "metadata.deletionTimestamp"
         }
       ]
     }

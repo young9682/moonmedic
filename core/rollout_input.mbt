@@ -109,7 +109,11 @@ fn rollout_finding(
     surge + unavailable > 0 else {
     return Err("需要正副本数与整数策略参数")
   }
-  guard template(dep) is Some(target) && @rules.object_uid(dep) is Some(dep_uid) else {
+  guard template(dep) is Some(target) &&
+    @rules.object_uid(dep) is Some(dep_uid) &&
+    !dep_uid.is_empty() &&
+    field(field(dep, "metadata"), "namespace") == Json::string(s.ns) &&
+    field(field(dep, "metadata"), "name") == Json::string(s.target_name) else {
     return Err("缺少模板或 Deployment UID")
   }
   let current = sets.filter(fn(rs) { template(rs) == Some(target) })
@@ -138,11 +142,12 @@ fn rollout_finding(
   let qspec = field(quota, "spec")
   let qs = field(quota, "status")
   let qhard = field(qs, "hard")
-  guard field(qspec, "scopes") == Json::null() &&
+  guard field(field(quota, "metadata"), "namespace") == Json::string(s.ns) &&
+    field(qspec, "scopes") == Json::null() &&
     field(qspec, "scopeSelector") == Json::null() &&
     qhard is Object(h) &&
     h.length() == 1 &&
-    (field(qspec, "hard") == Json::null() || field(qspec, "hard") == qhard) else {
+    field(qspec, "hard") == qhard else {
     return Err("配额存在其他约束或状态尚未同步")
   }
   let hard = quota_count(field(qhard, "pods"))
@@ -155,6 +160,7 @@ fn rollout_finding(
   let mut retiring = 0
   let mut other_retiring = 0
   let mut total = 0
+  let releases : Array[@rules.Evidence] = []
   for pod in s.pods {
     let meta = field(pod, "metadata")
     guard field(meta, "namespace") == Json::string(s.ns) &&
@@ -179,6 +185,17 @@ fn rollout_finding(
       live = live + 1
     } else if deleting {
       other_retiring = other_retiring + 1
+      guard field(meta, "name") is String(name) else {
+        return Err("缺少终止 Pod 名称")
+      }
+      releases.push(
+        rollout_ref(
+          "Pod",
+          name,
+          "metadata.deletionTimestamp",
+          field(meta, "deletionTimestamp"),
+        ),
+      )
     }
   }
   let desired = count(field(field(new_rs, "spec"), "replicas"))
@@ -276,6 +293,7 @@ fn rollout_finding(
         field(field(new_rs, "spec"), "replicas"),
       ),
       rollout_ref("ResourceQuota", qname, "status", qs),
-    ],
+    ] +
+    releases,
   })
 }
