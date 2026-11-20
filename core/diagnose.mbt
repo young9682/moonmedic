@@ -89,6 +89,14 @@ fn diagnose_workload(
   }
   let findings = @rules.run_all_workload(facts)
   let notes = clone_notes(snapshot.notes)
+  if scoped_by_uid &&
+    scoped_replicasets.length() == 2 &&
+    snapshot.deployment is Some(dep) {
+    match rollout_finding(snapshot, dep, scoped_replicasets) {
+      Ok(finding) => findings.push(finding)
+      Err(reason) => notes.push("滚动发布路径未判定：" + reason)
+    }
+  }
   if snapshot.deployment is None {
     notes.push(
       "未读取到 Deployment 对象,结论仅基于事件与配额证据",

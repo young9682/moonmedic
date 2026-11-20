@@ -132,6 +132,8 @@ pub fn render_json(d : @rules.Diagnosis) -> String {
 /// "related" so the JSON contract stays forward-compatible.
 fn finding_layer(rule_id : String) -> String {
   match rule_id {
+    "rollout_blocked" | "rollout_reachable" | "rollout_release_required" =>
+      "projection"
     "quota_exceeded"
     | "limitrange_reject"
     | "oomkilled_limit"

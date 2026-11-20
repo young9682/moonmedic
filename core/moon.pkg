@@ -1,4 +1,5 @@
 import {
+  "moonbitlang/core/string",
   "young9682/moonmedic/rules",
   "young9682/moonmedic/snapshot",
 }
