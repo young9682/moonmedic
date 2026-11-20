@@ -12,12 +12,10 @@ pub(all) struct SnapshotDiagnosis {
 /// Diagnose one snapshot. This is the whole offline core: no kubemoon, no
 /// LLM, no network. The caller decides how the snapshot was obtained.
 pub fn diagnose(snapshot : @snapshot.ClusterSnapshot) -> SnapshotDiagnosis {
-  let events = @rules.events_from_items(snapshot.events)
-  let quotas = parse_quotas(snapshot.quotas)
   if snapshot.target_kind == "Deployment" {
-    diagnose_workload(snapshot, events, quotas)
+    diagnose_workload(snapshot, parse_quotas(snapshot.quotas))
   } else if snapshot.target_kind == "Pod" {
-    diagnose_pod(snapshot, events)
+    diagnose_pod(snapshot)
   } else {
     let notes = clone_notes(snapshot.notes)
     notes.push(
@@ -44,25 +42,27 @@ pub fn diagnose(snapshot : @snapshot.ClusterSnapshot) -> SnapshotDiagnosis {
 /// admission/runtime workload rules over the facts.
 fn diagnose_workload(
   snapshot : @snapshot.ClusterSnapshot,
-  events : Array[@rules.EventFact],
   quotas : Array[@rules.QuotaFact],
 ) -> SnapshotDiagnosis {
   let deployment_uid = match snapshot.deployment {
     Some(raw) => @rules.object_uid(raw)
     None => None
   }
-  let scoped_events = events_for_workload(
-    events,
-    snapshot.target_name,
-    deployment_uid,
-    snapshot.replicasets,
-  )
   // Scope the ReplicaSet list to the target Deployment before counting Pods:
   // namespace-wide lists would let a foreign workload's Pods pad the target's
   // count and mask the "Pod was never created" symptom.
   let (scoped_replicasets, scoped_by_uid) = owned_replicasets(
     snapshot.replicasets,
     deployment_uid,
+  )
+  let scoped_events = events_for_workload(
+    snapshot,
+    deployment_uid,
+    if scoped_by_uid {
+      scoped_replicasets
+    } else {
+      []
+    },
   )
   let pod_count = count_owned_pods(scoped_replicasets, snapshot.pods)
   let facts = match snapshot.deployment {
@@ -121,11 +121,22 @@ fn diagnose_workload(
 
 ///|
 /// Pod path: runtime facts from the Pod object + events + logs.
-fn diagnose_pod(
-  snapshot : @snapshot.ClusterSnapshot,
-  events : Array[@rules.EventFact],
-) -> SnapshotDiagnosis {
-  let scoped_events = events_for_pod(events, snapshot.target_name)
+fn diagnose_pod(snapshot : @snapshot.ClusterSnapshot) -> SnapshotDiagnosis {
+  let uid = match snapshot.pod {
+    Some(raw) => @rules.object_uid(raw)
+    None => None
+  }
+  let scoped_events = @rules.events_from_items(
+    snapshot.events.filter(fn(raw) {
+      @rules.event_matches_object(
+        raw,
+        ns=snapshot.ns,
+        kind="Pod",
+        name=snapshot.target_name,
+        uid?,
+      )
+    }),
+  )
   let facts = match snapshot.pod {
     Some(raw) =>
       @rules.PodFacts::from_pod(raw, events=scoped_events, logs?=snapshot.logs)
@@ -217,60 +228,37 @@ fn count_owned_pods(replicasets : Array[Json], pods : Array[Json]) -> Int32 {
 }
 
 ///|
-/// Keep only events whose involvedObject.name is the target Pod. Namespace
-/// events are not evidence for a different Pod.
-fn events_for_pod(
-  events : Array[@rules.EventFact],
-  pod_name : String,
-) -> Array[@rules.EventFact] {
-  let out : Array[@rules.EventFact] = []
-  for event in events {
-    if event.name == pod_name {
-      out.push(event)
-    }
-  }
-  out
-}
-
-///|
-/// Keep events attached to the Deployment or one of its ReplicaSets. This
-/// prevents another workload's FailedCreate events from being attributed to
-/// the target.
+/// Qualify the Deployment and owned ReplicaSet names with their current
+/// identity so retained events for a deleted namesake cannot drive diagnosis.
 fn events_for_workload(
-  events : Array[@rules.EventFact],
-  deployment_name : String,
+  snapshot : @snapshot.ClusterSnapshot,
   deployment_uid : String?,
-  replicasets : Array[Json],
+  owned : Array[Json],
 ) -> Array[@rules.EventFact] {
-  let names : Array[String] = [deployment_name]
-  if deployment_uid is Some(uid) {
-    for raw in replicasets {
-      if @rules.owned_by_uid(raw, uid) {
-        if raw is Object(fields) &&
-          fields.get("metadata") is Some(Object(meta)) &&
-          meta.get("name") is Some(String(name)) {
-          names.push(name)
-        }
-      }
+  let targets : Map[(String, String), String?] = Map([])
+  targets[("Deployment", snapshot.target_name)] = deployment_uid
+  for raw in owned {
+    if raw is Object(fields) &&
+      fields.get("metadata") is Some(Object(meta)) &&
+      meta.get("name") is Some(String(name)) {
+      targets[("ReplicaSet", name)] = @rules.object_uid(raw)
     }
   }
   let out : Array[@rules.EventFact] = []
-  for event in events {
-    if list_has_name(names, event.name) {
+  for raw in snapshot.events {
+    if @rules.EventFact::from_json(raw) is Some(event) &&
+      targets.get((event.kind, event.name)) is Some(uid) &&
+      @rules.event_matches_object(
+        raw,
+        ns=snapshot.ns,
+        kind=event.kind,
+        name=event.name,
+        uid?,
+      ) {
       out.push(event)
     }
   }
   out
-}
-
-///|
-fn list_has_name(names : Array[String], name : String) -> Bool {
-  for candidate in names {
-    if candidate == name {
-      return true
-    }
-  }
-  false
 }
 
 ///|

@@ -20,7 +20,7 @@
 
 已佐证的 `pods` 项可根据 `spec.replicas - owned_pod_count` 推算缺失副本所需配额。建议以快照当前用量为前提，报告引用副本数、归属计数和该配额的 `used/hard`。Pod 计数不可用时省略差额。相同资源也可能同时受多条约束，建议只涉及匹配到的配额。规则权重用于区分证据强弱，未做概率校准。
 
-**验证边界。** Pod 与 ReplicaSet 按 UID 关联，工作负载事件目前按目标及归属 ReplicaSet 的对象名归集。时间戳用于查看记录，采集结果未做跨对象时间一致性校验。相同错误格式被第三方插件复用时，需要操作者核对来源。跨 Kubernetes 版本和未列出的准入插件待验证。格式依据见 [Kubernetes v1.33 ResourceQuota](https://github.com/kubernetes/apiserver/blob/v0.33.0/pkg/admission/plugin/resourcequota/controller.go#L561-L575) 与 [LimitRanger](https://github.com/kubernetes/kubernetes/blob/v1.33.0/plugin/pkg/admission/limitranger/admission.go#L284-L348)。
+**验证边界。** Pod 与 ReplicaSet 按 UID 关联。事件按 `involvedObject` 的类型和名称匹配，检查已提供的命名空间，并在事件和当前对象均有 UID 时核对 UID。缺少 UID 的旧快照仍可回放，此时无法区分同名对象的不同实例。时间戳用于查看记录，采集结果未做跨对象时间一致性校验。相同错误格式被第三方插件复用时，需要操作者核对来源。跨 Kubernetes 版本和未列出的准入插件待验证。[Event API](https://kubernetes.io/docs/reference/kubernetes-api/core/event-v1/) · [Kubernetes v1.33 ResourceQuota](https://github.com/kubernetes/apiserver/blob/v0.33.0/pkg/admission/plugin/resourcequota/controller.go#L561-L575) · [LimitRanger](https://github.com/kubernetes/kubernetes/blob/v1.33.0/plugin/pkg/admission/limitranger/admission.go#L284-L348)
 
 ### 反例回归
 
@@ -31,7 +31,7 @@
 | R03，Webhook 拒绝与饱和配额并存 | `quota_exceeded`，0.7 | 饱和配额为 `related`，配额根因缺席 |
 | R04，拒绝点名的配额与当前资源状态无法对应 | `quota_exceeded`，0.98 | 保留拒绝记录，权重 0.85。当前数值佐证及差额缺席。回归同时设置异名同资源、同名异资源两种干扰。 |
 
-E01 至 E04 是此前在 RKE2 注入后由 kubectl 采集的快照。E05 派生自 E01，用不可用的 Pods 列表验证降级。R01 至 R04 为离线反例。**本轮重新执行的是离线 CLI 和断言，结果 9/9，单测 53/53。** 现场采集的参考流程见[评测说明](../eval/README.md)。
+E01 至 E04 是此前在 RKE2 注入后由 kubectl 采集的快照。E05 派生自 E01，用不可用的 Pods 列表验证降级。R01 至 R05 为离线反例，R05 验证同名 ReplicaSet 重建后旧事件不会触发配额误报。**离线 CLI 断言 10/10，单测 54/54。** [评测说明](../eval/README.md)
 
 ## 外部基线
 

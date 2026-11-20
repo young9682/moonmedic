@@ -6,11 +6,15 @@ async fn gather_facts(
   target : @tools.K8sTarget,
   pod_name~ : String,
   logs_tail~ : Int32,
-) -> (@rules.PodFacts, Array[String]) {
+) -> (@rules.PodFacts, Array[String], String?) {
   let pod = @tools.get_pod(target, name=pod_name)
   let notes = []
+  let pod_uid = match pod {
+    Ok(pod) => @rules.object_uid(pod.raw())
+    Err(_) => None
+  }
   let events = match @tools.list_events_json(target) {
-    Ok(items) => events_for_pod(items, pod_name)
+    Ok(items) => events_for_pod(items, ns=target.ns, pod_name~, pod_uid?)
     Err(message) => {
       notes.push("事件读取失败:\{message}")
       []
@@ -35,19 +39,27 @@ async fn gather_facts(
       @rules.PodFacts::empty(events~, logs?)
     }
   }
-  (facts, notes)
+  (facts, notes, pod_uid)
 }
 
 ///|
 /// Filter raw Event objects down to one Pod, keeping the typed fields.
 fn events_for_pod(
   items : Array[Json],
-  pod_name : String,
+  ns~ : String,
+  pod_name~ : String,
+  pod_uid? : String,
 ) -> Array[@rules.EventFact] {
-  let parsed = @rules.events_from_items(items)
   let out : Array[@rules.EventFact] = []
-  for event in parsed {
-    if event.name == pod_name {
+  for raw in items {
+    if @rules.event_matches_object(
+        raw,
+        ns~,
+        kind="Pod",
+        name=pod_name,
+        uid?=pod_uid,
+      ) &&
+      @rules.EventFact::from_json(raw) is Some(event) {
       out.push(event)
       if out.length() >= 50 {
         break

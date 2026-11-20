@@ -1,0 +1,46 @@
+{
+  "ns": "evaluation",
+  "target_kind": "Deployment",
+  "target_name": "payments-api",
+  "deployment": {
+    "metadata": {"name": "payments-api", "namespace": "evaluation", "uid": "deployment-2"},
+    "spec": {"replicas": 1}
+  },
+  "replicasets": [
+    {
+      "metadata": {
+        "name": "payments-api-demo",
+        "namespace": "evaluation",
+        "uid": "rs-current",
+        "ownerReferences": [{"kind": "Deployment", "name": "payments-api", "uid": "deployment-2"}]
+      },
+      "spec": {"replicas": 1}
+    }
+  ],
+  "pods": [],
+  "events": [
+    {
+      "type": "Warning",
+      "reason": "FailedCreate",
+      "message": "Error creating: pods \"payments-api-demo-old\" is forbidden: exceeded quota: compute, requested: pods=1, used: pods=10, limited: pods=10",
+      "involvedObject": {
+        "kind": "ReplicaSet",
+        "namespace": "evaluation",
+        "name": "payments-api-demo",
+        "uid": "rs-deleted"
+      }
+    },
+    {
+      "type": "Warning",
+      "reason": "FailedCreate",
+      "message": "Error creating: pods \"payments-api-demo-new\" is forbidden: spec.template: Invalid value: unsupported field value",
+      "involvedObject": {
+        "kind": "ReplicaSet",
+        "namespace": "evaluation",
+        "name": "payments-api-demo",
+        "uid": "rs-current"
+      }
+    }
+  ],
+  "quotas": []
+}

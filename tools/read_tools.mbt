@@ -76,6 +76,7 @@ pub async fn get_pod(
 pub async fn get_events(
   target : K8sTarget,
   pod_name~ : String,
+  pod_uid? : String,
 ) -> Result[Array[String], String] {
   let config = build_config(target)
   let events_gvr = @resource.GroupVersionResource(
@@ -117,28 +118,18 @@ pub async fn get_events(
   let lines = []
   for item in snapshot.items() {
     let raw = item.raw()
-    let involved = match raw {
-      Object(fields) => json_child(fields, "involvedObject")
-      _ => None
-    }
-    let obj_name = match involved {
-      Some(Object(fields)) => json_str(fields, "name")
-      _ => None
-    }
-    if obj_name != Some(pod_name) {
-      continue
-    }
-    let reason = match raw {
-      Object(fields) => json_str(fields, "reason").unwrap_or("Unknown")
-      _ => "Unknown"
-    }
-    let message = match raw {
-      Object(fields) => json_str(fields, "message").unwrap_or("")
-      _ => ""
-    }
-    lines.push("\{reason}: \{message}")
-    if lines.length() >= 50 {
-      break
+    if @rules.event_matches_object(
+        raw,
+        ns=target.ns,
+        kind="Pod",
+        name=pod_name,
+        uid?=pod_uid,
+      ) &&
+      @rules.EventFact::from_json(raw) is Some(event) {
+      lines.push("\{event.reason}: \{event.message}")
+      if lines.length() >= 50 {
+        break
+      }
     }
   }
   Ok(lines)
@@ -207,21 +198,6 @@ pub fn first_container_name(pod : @object.DynamicObject) -> String? {
           }
         _ => None
       }
-    _ => None
-  }
-}
-
-///|
-/// Read a nested object field from a JSON field map.
-fn json_child(fields : Map[String, Json], key : String) -> Json? {
-  fields.get(key)
-}
-
-///|
-/// Read a string field from a JSON field map.
-fn json_str(fields : Map[String, Json], key : String) -> String? {
-  match fields.get(key) {
-    Some(String(value)) => Some(value)
     _ => None
   }
 }

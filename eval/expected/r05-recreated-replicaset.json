@@ -1,0 +1,20 @@
+{
+  "forbid_rule_ids": ["quota_exceeded", "limitrange_reject"],
+  "expect_findings": {
+    "replicaset_create_failed": {
+      "layer": "mechanism",
+      "evidence_refs": [
+        {
+          "source": "events",
+          "object_name": "payments-api-demo",
+          "observed_value": "Error creating: pods \"payments-api-demo-new\" is forbidden: spec.template: Invalid value: unsupported field value"
+        }
+      ]
+    },
+    "workload_no_pods": {
+      "layer": "symptom"
+    }
+  },
+  "evidence_contains": ["spec.template: Invalid value: unsupported field value"],
+  "forbid_evidence_contains": ["payments-api-demo-old"]
+}

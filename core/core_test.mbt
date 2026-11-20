@@ -78,6 +78,28 @@ test "foreign Pod events are not attributed to the target" {
 }
 
 ///|
+test "Pod event identity rejects mismatches and accepts legacy references" {
+  let raw =
+    #|{
+    #|  "ns": "prod", "target_kind": "Pod", "target_name": "api",
+    #|  "pod": {"metadata": {"name": "api", "uid": "current"}, "status": {"phase": "Running"}},
+    #|  "events": [
+    #|    {"message": "old Pod", "involvedObject": {"kind": "Pod", "name": "api", "namespace": "prod", "uid": "deleted"}},
+    #|    {"message": "foreign namespace", "involvedObject": {"kind": "Pod", "name": "api", "namespace": "staging"}},
+    #|    {"message": "different kind", "involvedObject": {"kind": "Deployment", "name": "api", "namespace": "prod"}},
+    #|    {"message": "current Pod", "involvedObject": {"kind": "Pod", "name": "api", "namespace": "prod", "uid": "current"}},
+    #|    {"message": "legacy reference", "involvedObject": {"kind": "Pod", "name": "api"}}
+    #|  ]
+    #|}
+  let snapshot = @snapshot.ClusterSnapshot::from_json(@json.parse(raw)).unwrap()
+  let facts = @core.diagnose(snapshot).pod_facts.unwrap()
+  inspect(
+    facts.events.map(fn(event) { event.message }).join("|"),
+    content="current Pod|legacy reference",
+  )
+}
+
+///|
 test "foreign workload events are not attributed to the target" {
   let snapshot = @snapshot.ClusterSnapshot::from_json(
     @json.parse(

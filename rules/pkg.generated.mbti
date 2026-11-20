@@ -7,6 +7,8 @@ import {
 }
 
 // Values
+pub fn event_matches_object(@json.Json, ns~ : String, kind~ : String, name~ : String, uid? : String) -> Bool
+
 pub fn events_from_items(Array[@json.Json]) -> Array[EventFact]
 
 pub fn events_from_json_array(@json.Json) -> Array[EventFact]

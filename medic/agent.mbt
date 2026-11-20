@@ -99,6 +99,7 @@ fn arg_int(args : Json, key : String) -> Int32? {
 async fn execute_tool(
   target : @tools.K8sTarget,
   pod_name~ : String,
+  pod_uid? : String,
   call : @llm.ToolCall,
 ) -> String {
   let result : Result[String, String] = match call.name {
@@ -110,7 +111,7 @@ async fn execute_tool(
       }
     }
     "get_events" =>
-      match @tools.get_events(target, pod_name~) {
+      match @tools.get_events(target, pod_name~, pod_uid?) {
         Ok(lines) =>
           Ok(
             if lines.is_empty() {

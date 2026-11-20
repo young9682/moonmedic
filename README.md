@@ -92,7 +92,7 @@ ClusterSnapshot →│ core(确定性证据引擎)       │→ Diagnosis
 | W3 | LLM 单轮归纳(OpenAI 兼容,可降级) | ✅ |
 | W4 | Agent 工具循环 + CI + 文档打磨 | ✅ |
 | Phase A | 快照 IR、对象图、配额数值重建 + LimitRange 识别、`--deployment`、`--json` | ✅ |
-| Phase B | RKE2 采集 E01–E04、缺证据派生 E05、反例 R01–R04 离线回放 | ✅ |
+| Phase B | RKE2 采集 E01–E04、缺证据派生 E05、反例 R01–R05 离线回放 | ✅ |
 | Phase C | StatefulSet/DaemonSet、节点容量、上一容器日志、日志签名 | 可选 |
 
 ## 开发
@@ -149,7 +149,7 @@ moon run cmd/main -- prod payments-api
 ```bash
 moon fmt --check   # 格式
 moon check         # 类型检查
-moon test          # 53 个测试
+moon test          # 54 个测试
 bash eval/scripts/run-all.sh
 ```
 
@@ -167,7 +167,7 @@ CI 在 main 推送和 PR 上运行以上检查，并检查 `core`、`rules`、`s
 | e04 | 同 ns 存在健康外来工作负载 | 归属隔离:目标 Pod 计数仍为 0 | PASS |
 | e05 | Pods 源标记 unavailable | insufficient_evidence 降级 | PASS |
 
-R01–R04 覆盖缺资源声明、通用校验、Webhook 与配额饱和共存，以及配额名称或资源项不匹配。离线回放 9/9，单测 53/53。
+R01–R05 覆盖缺资源声明、通用校验、Webhook 与配额饱和共存、配额名称或资源项不匹配，以及同名 ReplicaSet 重建后的旧事件误归因。离线回放 10/10，单测 54/54。
 
 ## 限制
 

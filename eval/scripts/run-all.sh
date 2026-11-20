@@ -10,6 +10,7 @@ if [ ${#SCENARIOS[@]} -eq 0 ]; then
     e04-foreign-workload e05-incomplete-evidence
     r01-quota-missing-resources r02-generic-validation
     r03-webhook-with-saturation r04-unmatched-quota
+    r05-recreated-replicaset
   )
 fi
 OUT=$(mktemp) || exit 1

@@ -23,6 +23,9 @@ for rid in expected.get("forbid_rule_ids", []):
 for needle in expected.get("evidence_contains", []):
     if needle not in evidence_text:
         failures.append(f"证据缺少关键内容: {needle}")
+for needle in expected.get("forbid_evidence_contains", []):
+    if needle in evidence_text:
+        failures.append(f"证据包含禁止内容: {needle}")
 
 for rule_id, spec in expected.get("expect_findings", {}).items():
     matching = [finding for finding in findings if finding.get("rule_id") == rule_id]

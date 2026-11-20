@@ -3,7 +3,7 @@
 ## 设计
 
 - **集群采集**。E01–E04 从 RKE2 的隔离命名空间采集。注入脚本应用场景 manifest，采集脚本用 `kubectl get -o json` 组装 ClusterSnapshot。
-- **离线派生**。E05 在 E01 的基础上把 Pods 源设为 unavailable。R01–R04 为复查反例构造的最小快照。
+- **离线派生**。E05 在 E01 的基础上把 Pods 源设为 unavailable。R01–R05 为复查反例构造的最小快照。
 - **回放**:`moon run cmd/main -- --snapshot <fixture> --json` 离线诊断,
   不需要集群、网络或 API Key。
 - **断言**。`assert.py` 校验必需及禁止的规则 ID，并可按规则检查层级、权重、差额文本和证据引用。CI 运行完整回放。缺失 fixture、CLI 失败或断言失败均返回非零退出码。
@@ -21,6 +21,7 @@
 | r02 | 通用 Invalid value | 保留机制，LimitRange 根因缺席 |
 | r03 | Webhook 拒绝与配额饱和 | 饱和只作为 related 提示 |
 | r04 | 异名同资源与同名异资源 | 保留明确拒绝，禁止引用不匹配的配额状态或推算差额 |
+| r05 | 同名 ReplicaSet 重建，快照保留旧对象的配额拒绝事件 | 拒绝 UID 不匹配的旧事件，保留新对象的通用校验失败与零 Pod 结论 |
 
 ## 前置条件
 
@@ -38,6 +39,6 @@ bash eval/scripts/run-all.sh     # 离线回放 + 断言(不需要集群)
 
 ## 指标口径
 
-本轮单测 53/53，离线回放 9/9。场景来源为真实采集 4 份、完整性派生 1 份、复查反例 4 份。`results/` 保存早期回放输出，当前结果以重跑断言为准。
+本轮单测 54/54，离线回放 10/10。场景来源为真实采集 4 份、完整性派生 1 份、复查反例 5 份。R05 在修复前触发 `quota_exceeded`，修复后只输出当前对象的创建失败和零 Pod 结论。`results/` 保存早期回放输出，当前结果以重跑断言为准。
 
 [外部工具实测](BASELINES.md)使用 E01、E02 和 R01–R04 的同一组快照，记录 kubectl、K8sGPT、HolmesGPT 与 moonmedic 的输出和读取轨迹。

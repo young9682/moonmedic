@@ -12,7 +12,7 @@ pub fn first_container_name(@object.DynamicObject) -> String?
 
 pub async fn get_deployment_json(K8sTarget, name~ : String) -> Result[@json.Json, String]
 
-pub async fn get_events(K8sTarget, pod_name~ : String) -> Result[Array[String], String]
+pub async fn get_events(K8sTarget, pod_name~ : String, pod_uid? : String) -> Result[Array[String], String]
 
 pub async fn get_logs(K8sTarget, pod_name~ : String, tail? : Int32, container? : String) -> Result[String, String]
 

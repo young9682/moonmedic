@@ -139,6 +139,33 @@ pub fn EventFact::from_json(raw : Json) -> EventFact? {
 }
 
 ///|
+/// Match a core/v1 Event to its involved object. Older snapshots may omit UID
+/// or namespace, but an explicit mismatch rules out that object.
+pub fn event_matches_object(
+  raw : Json,
+  ns~ : String,
+  kind~ : String,
+  name~ : String,
+  uid? : String,
+) -> Bool {
+  guard raw is Object(fields) else { return false }
+  guard fields.get("involvedObject") is Some(Object(involved)) else {
+    return false
+  }
+  guard json_sf(involved, "kind") == Some(kind) &&
+    json_sf(involved, "name") == Some(name) else {
+    return false
+  }
+  let event_ns = json_sf(involved, "namespace").unwrap_or("")
+  guard event_ns.is_empty() || event_ns == ns else { return false }
+  match (uid, json_sf(involved, "uid")) {
+    (Some(current), Some(recorded)) =>
+      current.is_empty() || recorded.is_empty() || current == recorded
+    _ => true
+  }
+}
+
+///|
 /// Decode a Kubernetes EventList body into facts. Items that are not event
 /// objects are skipped so one malformed entry cannot poison the batch.
 pub fn events_from_json_array(raw : Json) -> Array[EventFact] {

@@ -10,7 +10,7 @@ pub async fn diagnose_agent(
   max_steps~ : Int32 = 8,
   logs_tail~ : Int32 = 100,
 ) -> @rules.Diagnosis {
-  let (facts, notes) = gather_facts(target, pod_name~, logs_tail~)
+  let (facts, notes, pod_uid) = gather_facts(target, pod_name~, logs_tail~)
   let findings = @rules.run_all(facts)
   let initial = @llm.build_summary_prompt(facts, findings)
   let user_msg : Map[String, Json] = Map([])
@@ -54,7 +54,7 @@ pub async fn diagnose_agent(
         } else {
           messages.push(build_assistant_msg(turn.content, turn.tool_calls))
           for call in turn.tool_calls {
-            let result = execute_tool(target, pod_name~, call)
+            let result = execute_tool(target, pod_name~, pod_uid?, call)
             if debug {
               println(
                 "[moonmedic][agent]   ↳ \{call.name} → \{result.length()} 字符",
