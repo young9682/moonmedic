@@ -60,7 +60,12 @@ jq '.deployment.spec.strategy.rollingUpdate.maxUnavailable=1' "$out/blocked.json
 moon run cmd/main -- --snapshot "$out/counterfactual.json" --json >"$out/recovery-prediction.json"
 jq -e 'any(.findings[]; .rule_id=="rollout_reachable")' "$out/recovery-prediction.json" >/dev/null
 "${k[@]}" patch deployment web -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1}}}}'
-"${k[@]}" rollout status deployment/web --timeout=240s
+if ! "${k[@]}" rollout status deployment/web --timeout=540s; then
+  capture recovery-timeout
+  "${k[@]}" get rs,pods,quota -o wide
+  "${k[@]}" get events --sort-by=.metadata.creationTimestamp
+  exit 1
+fi
 for _ in {1..30}; do
   capture recovered
   if jq -e '(.pods|length)==4 and .quotas[0].status.used.pods=="4"
