@@ -149,7 +149,7 @@ moon run cmd/main -- prod payments-api
 ```bash
 moon fmt --check   # 格式
 moon check         # 类型检查
-moon test          # 54 个测试
+moon test          # 55 个测试
 bash eval/scripts/run-all.sh
 ```
 
@@ -157,7 +157,7 @@ CI 在 main 推送和 PR 上运行以上检查，并检查 `core`、`rules`、`s
 
 ## 评测
 
-评测集包括 **4 份从 RKE2 注入后采集的快照、1 份缺证据派生快照、4 份误报回归快照**。离线回放使用已准备好的构建依赖，无需集群和模型端点。详见[场景和断言](eval/README.md)。
+15 个离线案例包括 4 份 RKE2 采集、1 份缺证据派生、5 份误报回归和 5 份滚动发布对照。[场景和断言](eval/README.md)
 
 | 场景 | 注入 | 验证点 | 结果 |
 |---|---|---|---|
@@ -167,7 +167,9 @@ CI 在 main 推送和 PR 上运行以上检查，并检查 `core`、`rules`、`s
 | e04 | 同 ns 存在健康外来工作负载 | 归属隔离:目标 Pod 计数仍为 0 | PASS |
 | e05 | Pods 源标记 unavailable | insufficient_evidence 降级 | PASS |
 
-R01–R05 覆盖缺资源声明、通用校验、Webhook 与配额饱和共存、配额名称或资源项不匹配，以及同名 ReplicaSet 重建后的旧事件误归因。离线回放 10/10，单测 54/54。
+R01–R05 覆盖缺资源声明、通用校验、Webhook 与配额饱和共存、配额名称或资源项不匹配，以及同名 ReplicaSet 重建后的旧事件误归因。
+
+`--deployment` 和 `--snapshot` 会对符合模型条件的新旧 ReplicaSet 搜索替换路径。`projection` 层区分受阻、存在完成路径、必须等待外部 Pod 释放名额。可行路径附一组从当前状态到完成状态的动作。现场状态变化的速度取决于调度、就绪与删除进度。
 
 ## 限制
 

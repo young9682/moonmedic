@@ -2,6 +2,26 @@
 
 [八项项目申报书](项目申报书.md) · [复现及验收](ACCEPTANCE.md) · [评测场景](../eval/README.md)
 
+## 第三轮复核中的滚动发布可达性
+
+Deployment 的最终目标是新版全部可用且旧版退出。同样的配额饱和与零个新版 Pod，可以对应不同的完成路径。MoonBit 从快照中识别与 Deployment 模板一致的 ReplicaSet（忽略控制器注入的模板哈希），再以归属 Pod 和配额用量核对初态。状态记录旧版可用数、新版期望数、实际数、可用数，以及正在释放的旧版和外部名额。每一步模拟一次控制器调整、创建、就绪或名额释放。搜索记录前驱以还原动作路径。走遍可达状态才报告受阻，达到 10,000 状态的搜索上限会报告未判定。[搜索实现](../core/rollout_search.mbt) · [Kubernetes 新版扩容](https://github.com/kubernetes/kubernetes/blob/v1.33.1/pkg/controller/deployment/util/deployment_util.go#L759-L778) · [Kubernetes 旧版缩容](https://github.com/kubernetes/kubernetes/blob/v1.33.1/pkg/controller/deployment/rolling.go#L178-L205)
+
+五个无拒绝消息的输入共用同一起点。目标 3，旧版 3 个可用，新版期望 1 个、实际 0 个，外部 Pod 占 1 个名额。基准配额 4/4，整数策略为 surge 1、unavailable 0。
+
+| 唯一变更 | CLI 的模型结论 | 可核查的依据 |
+|---|---|---|
+| A，沿用基准 | `rollout_blocked` | 无名额可创建新 Pod，3 个可用副本也没有缩容空间 |
+| B，surge 增至 2 | `rollout_blocked` | 可以提高新 RS 的期望数，仍创建不了第一个新 Pod |
+| C，unavailable 改为 1 | `rollout_reachable` | 可先退一个旧副本，名额释放后创建新版，最低可用数为 2 |
+| D，配额上限改为 5 | `rollout_reachable` | 先创建新版并使其可用，再退旧，可保持 3 个可用副本 |
+| E，外部 Pod 开始删除 | `rollout_release_required` | 分别搜索占位持续和允许释放两种情形，仅后者有完成路径 |
+
+结论限整数策略、单一无作用域 Pod 数量配额与两个归属 RS，旧版活动 Pod 均可用。模型假定其他常驻负载保持稳定、新 Pod 可以就绪、缩容后最终释放配额。可达性表示存在可行动作顺序，耗时和具体重试时机由实际控制器决定。百分比策略、资源配额组合、列表截断和无法核实的对象状态缺少相应判断条件。[输入检查](../core/rollout_input.mbt) · [五例回放与断言](../eval/README.md)
+
+**案例 C 的现场边界**。Kubernetes v1.33.1 中，配额保持 4，仅将 `maxUnavailable` 从 0 改为 1，新版可用数从 0 增到 2，旧版退到 0。540 秒观察窗口结束时，新 RS 期望 3、可用 2，命名空间实际用量为 3/4。这里观察到了恢复动作，第三个副本的创建尚未观察到。快照无法单独确定控制器何时再次尝试创建。移除现场阻塞快照中的所有事件与控制器条件后，CLI 仍能分别推出原策略受阻和放宽策略后的模型可达路径。[540 秒现场记录](https://github.com/young9682/moonmedic/actions/runs/44673527277)
+
+**案例 D 的现场闭环**。另一套全新 kind 集群中，先观察到旧 RS 的 3 个副本可用，新 RS 期望 1 个、实际 0 个，以及 `FailedCreate` 和配额 4/4。实时 CLI 给出 `rollout_blocked`。在采集快照中单独将配额改为 5，离线 CLI 预测 `rollout_reachable`。随后实际修改 ResourceQuota 的上限，保持 `maxUnavailable=0`，观察到新版 3/3、旧版 0/0、已用 4/5。CI 同时断言这三个终态，并保存 RS 转换记录。[现场运行](https://github.com/young9682/moonmedic/actions/runs/44674774969) · [C、D 观测数据与预测动作](../eval/results/rollout-kind-v1.33.1.json)
+
 ## 对首轮意见的回应
 
 - **扣除客户端和通用 Agent 后的贡献**。MoonBit 核心消费 `ClusterSnapshot`，按 UID 重建工作负载与副本的归属，解释列表可用性，分类创建失败，组合拒绝记录和 ResourceQuota 数值，并输出分层及字段级证据。集群 I/O 和模型接口都在诊断核心之外。

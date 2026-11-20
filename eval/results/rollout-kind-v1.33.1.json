@@ -1,0 +1,285 @@
+{
+  "source": "GitHub Actions, disposable kind clusters; projected from uploaded snapshots and ReplicaSet watches",
+  "cases": {
+    "C": {
+      "windowSeconds": 540,
+      "conclusion": "partial recovery at end of observation",
+      "kubernetes": "v1.33.1",
+      "workflowRun": 44673527277,
+      "phases": [
+        {
+          "phase": "before",
+          "strategy": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "quota": {
+            "hard": {
+              "pods": "4"
+            },
+            "used": {
+              "pods": "4"
+            }
+          },
+          "replicaSets": [
+            {
+              "name": "web-6bf468b459",
+              "resourceVersion": "555",
+              "desired": 3,
+              "available": 3
+            }
+          ],
+          "pods": 4,
+          "creationFailures": []
+        },
+        {
+          "phase": "blocked",
+          "strategy": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "quota": {
+            "hard": {
+              "pods": "4"
+            },
+            "used": {
+              "pods": "4"
+            }
+          },
+          "replicaSets": [
+            {
+              "name": "web-59cd8d99fb",
+              "resourceVersion": "563",
+              "desired": 1,
+              "available": 0
+            },
+            {
+              "name": "web-6bf468b459",
+              "resourceVersion": "555",
+              "desired": 3,
+              "available": 3
+            }
+          ],
+          "pods": 4,
+          "creationFailures": [
+            "pods \"web-59cd8d99fb-dq6jm\" is forbidden: exceeded quota: slots, requested: pods=1, used: pods=4, limited: pods=4"
+          ]
+        },
+        {
+          "phase": "recovery-timeout",
+          "strategy": {
+            "maxSurge": 1,
+            "maxUnavailable": 1
+          },
+          "quota": {
+            "hard": {
+              "pods": "4"
+            },
+            "used": {
+              "pods": "3"
+            }
+          },
+          "replicaSets": [
+            {
+              "name": "web-59cd8d99fb",
+              "resourceVersion": "664",
+              "desired": 3,
+              "available": 2
+            },
+            {
+              "name": "web-6bf468b459",
+              "resourceVersion": "674",
+              "desired": 0,
+              "available": 0
+            }
+          ],
+          "pods": 3,
+          "creationFailures": [
+            "pods \"web-59cd8d99fb-dq6jm\" is forbidden: exceeded quota: slots, requested: pods=1, used: pods=4, limited: pods=4"
+          ]
+        }
+      ],
+      "liveProjection": "rollout_blocked",
+      "counterfactualProjection": "rollout_reachable",
+      "predictedActions": [
+        "scale_old_rs(-1)",
+        "scale_new_rs(+1)",
+        "release_old_slot",
+        "create_new_pod",
+        "new_available",
+        "scale_old_rs(-1)",
+        "scale_new_rs(+1)",
+        "release_old_slot",
+        "create_new_pod",
+        "new_available",
+        "scale_old_rs(-1)",
+        "release_old_slot",
+        "create_new_pod",
+        "new_available"
+      ],
+      "rsWatch": [
+        "NAME             VERSION   DESIRED   AVAILABLE",
+        "web-59cd8d99fb   563       1         <none>",
+        "web-6bf468b459   555       3         3",
+        "web-6bf468b459   575       2         3",
+        "web-6bf468b459   580       2         3",
+        "web-59cd8d99fb   582       2         <none>",
+        "web-6bf468b459   583       2         2",
+        "web-59cd8d99fb   587       2         <none>",
+        "web-59cd8d99fb   601       2         <none>",
+        "web-59cd8d99fb   612       2         1",
+        "web-6bf468b459   614       1         2",
+        "web-6bf468b459   619       1         2",
+        "web-59cd8d99fb   621       3         1",
+        "web-6bf468b459   623       1         1",
+        "web-59cd8d99fb   626       3         1",
+        "web-59cd8d99fb   652       3         1",
+        "web-59cd8d99fb   664       3         2",
+        "web-6bf468b459   665       0         1",
+        "web-6bf468b459   673       0         1",
+        "web-6bf468b459   674       0         <none>"
+      ]
+    },
+    "D": {
+      "conclusion": "replacement completed",
+      "kubernetes": "v1.33.1",
+      "workflowRun": 44674774969,
+      "phases": [
+        {
+          "phase": "before",
+          "strategy": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "quota": {
+            "hard": {
+              "pods": "4"
+            },
+            "used": {
+              "pods": "4"
+            }
+          },
+          "replicaSets": [
+            {
+              "name": "web-6bf468b459",
+              "resourceVersion": "505",
+              "desired": 3,
+              "available": 3
+            }
+          ],
+          "pods": 4,
+          "creationFailures": []
+        },
+        {
+          "phase": "blocked",
+          "strategy": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "quota": {
+            "hard": {
+              "pods": "4"
+            },
+            "used": {
+              "pods": "4"
+            }
+          },
+          "replicaSets": [
+            {
+              "name": "web-59cd8d99fb",
+              "resourceVersion": "519",
+              "desired": 1,
+              "available": 0
+            },
+            {
+              "name": "web-6bf468b459",
+              "resourceVersion": "505",
+              "desired": 3,
+              "available": 3
+            }
+          ],
+          "pods": 4,
+          "creationFailures": [
+            "pods \"web-59cd8d99fb-8zvvh\" is forbidden: exceeded quota: slots, requested: pods=1, used: pods=4, limited: pods=4"
+          ]
+        },
+        {
+          "phase": "recovered",
+          "strategy": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "quota": {
+            "hard": {
+              "pods": "5"
+            },
+            "used": {
+              "pods": "4"
+            }
+          },
+          "replicaSets": [
+            {
+              "name": "web-59cd8d99fb",
+              "resourceVersion": "635",
+              "desired": 3,
+              "available": 3
+            },
+            {
+              "name": "web-6bf468b459",
+              "resourceVersion": "646",
+              "desired": 0,
+              "available": 0
+            }
+          ],
+          "pods": 4,
+          "creationFailures": []
+        }
+      ],
+      "liveProjection": "rollout_blocked",
+      "counterfactualProjection": "rollout_reachable",
+      "predictedActions": [
+        "create_new_pod",
+        "new_available",
+        "scale_old_rs(-1)",
+        "scale_new_rs(+1)",
+        "release_old_slot",
+        "create_new_pod",
+        "new_available",
+        "scale_old_rs(-1)",
+        "scale_new_rs(+1)",
+        "release_old_slot",
+        "create_new_pod",
+        "new_available",
+        "scale_old_rs(-1)",
+        "release_old_slot"
+      ],
+      "rsWatch": [
+        "NAME             VERSION   DESIRED   AVAILABLE",
+        "web-59cd8d99fb   519       1         <none>",
+        "web-6bf468b459   505       3         3",
+        "web-59cd8d99fb   538       1         <none>",
+        "web-59cd8d99fb   540       1         <none>",
+        "web-59cd8d99fb   548       1         1",
+        "web-6bf468b459   549       2         3",
+        "web-59cd8d99fb   553       2         1",
+        "web-6bf468b459   555       2         3",
+        "web-59cd8d99fb   559       2         1",
+        "web-6bf468b459   560       2         2",
+        "web-59cd8d99fb   587       2         1",
+        "web-59cd8d99fb   589       2         1",
+        "web-59cd8d99fb   598       2         2",
+        "web-6bf468b459   599       1         2",
+        "web-6bf468b459   604       1         2",
+        "web-59cd8d99fb   605       3         2",
+        "web-6bf468b459   607       1         1",
+        "web-59cd8d99fb   611       3         2",
+        "web-59cd8d99fb   624       3         2",
+        "web-59cd8d99fb   628       3         2",
+        "web-59cd8d99fb   635       3         3",
+        "web-6bf468b459   637       0         1",
+        "web-6bf468b459   643       0         1",
+        "web-6bf468b459   646       0         <none>"
+      ]
+    }
+  }
+}
