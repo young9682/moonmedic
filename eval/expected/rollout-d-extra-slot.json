@@ -1,0 +1,21 @@
+{
+  "expect_findings": {
+    "rollout_reachable": {
+      "layer": "projection",
+      "evidence_refs": [
+        {
+          "object_name": "slots",
+          "field_path": "status"
+        }
+      ]
+    }
+  },
+  "forbid_rule_ids": [
+    "rollout_blocked",
+    "rollout_release_required",
+    "quota_exceeded"
+  ],
+  "evidence_contains": [
+    "create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → release_old_slot"
+  ]
+}

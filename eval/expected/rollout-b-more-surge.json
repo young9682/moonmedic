@@ -1,0 +1,18 @@
+{
+  "expect_findings": {
+    "rollout_blocked": {
+      "layer": "projection",
+      "evidence_refs": [
+        {
+          "object_name": "slots",
+          "field_path": "status"
+        }
+      ]
+    }
+  },
+  "forbid_rule_ids": [
+    "rollout_reachable",
+    "rollout_release_required",
+    "quota_exceeded"
+  ]
+}

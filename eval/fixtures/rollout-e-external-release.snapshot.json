@@ -1,0 +1,211 @@
+{
+  "ns": "review",
+  "target_kind": "Deployment",
+  "target_name": "web",
+  "deployment": {
+    "metadata": {
+      "name": "web",
+      "namespace": "review",
+      "uid": "web"
+    },
+    "spec": {
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "web",
+            "version": "new"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "web",
+              "image": "web:new"
+            }
+          ]
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        }
+      }
+    },
+    "status": {
+      "availableReplicas": 3
+    }
+  },
+  "replicasets": [
+    {
+      "metadata": {
+        "name": "new",
+        "namespace": "review",
+        "uid": "new",
+        "ownerReferences": [
+          {
+            "kind": "Deployment",
+            "name": "web",
+            "uid": "web",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "web",
+              "version": "new",
+              "pod-template-hash": "new"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "web",
+                "image": "web:new"
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "replicas": 0,
+        "availableReplicas": 0
+      }
+    },
+    {
+      "metadata": {
+        "name": "old",
+        "namespace": "review",
+        "uid": "old",
+        "ownerReferences": [
+          {
+            "kind": "Deployment",
+            "name": "web",
+            "uid": "web",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 3,
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "web",
+              "version": "old",
+              "pod-template-hash": "old"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "web",
+                "image": "web:old"
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "replicas": 3,
+        "availableReplicas": 3
+      }
+    }
+  ],
+  "pods": [
+    {
+      "metadata": {
+        "name": "old-0",
+        "namespace": "review",
+        "uid": "old-0",
+        "ownerReferences": [
+          {
+            "kind": "ReplicaSet",
+            "name": "old",
+            "uid": "old",
+            "controller": true
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "metadata": {
+        "name": "old-1",
+        "namespace": "review",
+        "uid": "old-1",
+        "ownerReferences": [
+          {
+            "kind": "ReplicaSet",
+            "name": "old",
+            "uid": "old",
+            "controller": true
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "metadata": {
+        "name": "old-2",
+        "namespace": "review",
+        "uid": "old-2",
+        "ownerReferences": [
+          {
+            "kind": "ReplicaSet",
+            "name": "old",
+            "uid": "old",
+            "controller": true
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "metadata": {
+        "name": "other",
+        "namespace": "review",
+        "uid": "other",
+        "deletionTimestamp": "2026-11-20T00:00:00Z"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    }
+  ],
+  "events": [],
+  "quotas": [
+    {
+      "metadata": {
+        "name": "slots",
+        "namespace": "review",
+        "uid": "slots"
+      },
+      "status": {
+        "hard": {
+          "pods": "4"
+        },
+        "used": {
+          "pods": "4"
+        }
+      },
+      "spec": {
+        "hard": {
+          "pods": "4"
+        }
+      }
+    }
+  ]
+}

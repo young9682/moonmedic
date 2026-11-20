@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Run on a disposable kind cluster named moonmedic-rollout.
+set -euo pipefail
+test "$(kubectl config current-context)" = kind-moonmedic-rollout
+out=${1:?pass an evidence directory}
+mkdir -p "$out"
+ns=moonmedic-eval-rollout
+kubectl create namespace "$ns"
+k=(kubectl -n "$ns")
+image=$(docker exec moonmedic-rollout-control-plane crictl images -o json |
+  jq -er '[.images[].repoTags[]? | select(test("/pause:[0-9]"))][0]')
+"${k[@]}" create quota slots --hard=pods=4
+"${k[@]}" run other --image="$image" --image-pull-policy=IfNotPresent --restart=Never
+cat <<YAML | "${k[@]}" create -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+      - name: web
+        image: $image
+        imagePullPolicy: IfNotPresent
+YAML
+"${k[@]}" wait --for=condition=Ready pod/other --timeout=180s
+"${k[@]}" rollout status deployment/web --timeout=180s
+capture() {
+  bash eval/scripts/capture-snapshot.sh rollout web "$out/$1.json"
+}
+capture before
+"${k[@]}" patch deployment web -p '{"spec":{"template":{"metadata":{"annotations":{"test-revision":"new"}}}}}'
+for _ in {1..60}; do
+  if "${k[@]}" get rs -o json | jq -e 'any(.items[].status.conditions[]?;
+      .reason == "FailedCreate" and (.message | contains("exceeded quota"))) ' >/dev/null; then break; fi
+  sleep 2
+done
+capture blocked
+jq -e 'any(.replicasets[].status.conditions[]?; .reason=="FailedCreate" and (.message|contains("exceeded quota")))' "$out/blocked.json" >/dev/null
+kubectl proxy --address=127.0.0.1 --port=8001 >"$out/proxy.log" 2>&1 &
+proxy=$!
+trap 'kill "$proxy" 2>/dev/null || true' EXIT
+for _ in {1..20}; do curl -fsS http://127.0.0.1:8001/version >/dev/null && break; sleep 1; done
+MOONMEDIC_SERVER=http://127.0.0.1:8001 moon run cmd/main -- --deployment "$ns" web --json >"$out/live-diagnosis.json"
+jq -e 'any(.findings[]; .rule_id=="rollout_blocked")' "$out/live-diagnosis.json" >/dev/null
+# Predict the effect of the one-field change before submitting it to the controller.
+jq '.deployment.spec.strategy.rollingUpdate.maxUnavailable=1' "$out/blocked.json" >"$out/counterfactual.json"
+moon run cmd/main -- --snapshot "$out/counterfactual.json" --json >"$out/recovery-prediction.json"
+jq -e 'any(.findings[]; .rule_id=="rollout_reachable")' "$out/recovery-prediction.json" >/dev/null
+"${k[@]}" patch deployment web -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1}}}}'
+"${k[@]}" rollout status deployment/web --timeout=240s
+capture recovered
+jq -e '.deployment.status.updatedReplicas==3 and .deployment.status.availableReplicas==3
+ and (.quotas[0].status.hard.pods=="4")
+ and any(.replicasets[]; .spec.template.metadata.annotations["test-revision"]=="new" and .status.availableReplicas==3)
+ and all(.replicasets[] | select(.spec.template.metadata.annotations["test-revision"]!="new"); .spec.replicas==0)' "$out/recovered.json" >/dev/null
+for phase in before blocked recovered; do
+  jq -c --arg phase "$phase" '{phase:$phase,quota:.quotas[0].status,rs:[.replicasets[]|{name:.metadata.name,desired:.spec.replicas,available:(.status.availableReplicas//0)}]}' "$out/$phase.json"
+done
