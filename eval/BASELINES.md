@@ -30,6 +30,22 @@ HolmesGPT 首轮出现过 jq 遍历空字段、投影无匹配、错误命名空
 
 本轮实测支持的项目增量是固化证据关联、缺失副本差额及弃权判据。E02 和 R04 分别展示数字推算和避免错误佐证。样本共六份，覆盖率与性能需要更大规模的验证。
 
+## 滚动发布同场对照
+
+2026-11-21，三款外部 CLI 和 moonmedic 分别读取同一组 A–E 快照。目标都是新版 3 个可用、旧版退出。初态为旧版 3 个可用、新版期望 1 个但实际为 0，另有 1 个外部 Pod 占位。A 的配额用量为 4/4，策略为 `maxSurge=1`、`maxUnavailable=0`。B–E 各自相对 A 只改一项，五份快照均无拒绝事件。本轮测的是工具对已保存状态的解读。集群随时间的变化另有 [C、D 现场观测](results/rollout-kind-v1.33.1.json)。
+
+| 相对 A 的改动 | kubectl 显示的输入 | K8sGPT 本地分析器 | HolmesGPT + Qwen3-4B 的回答 | moonmedic 的模型输出 |
+|---|---|---|---|---|
+| A · 基准 | 策略 1/0，配额 4/4 | 副本告警 | 判断可完成，认为满额仍可创建新版。 | 受阻。无法创建新版，也没有可先退的旧副本。 |
+| B · 只把 surge 调到 2 | 策略 2/0，配额 4/4，新 RS 期望 1、实际 0 | 与 A 相同 | 判断可完成，提到最低可用数限制，却认为 4 个名额足够，建议等待新版。 | 受阻。搜索到新版期望数升至 2、实际仍为 0，最低可用数为 3。 |
+| C · 只把 unavailable 调到 1 | 策略 1/1，配额 4/4，新旧 RS 的计数与 B 相同 | 与 A 相同 | 判断可完成，给出的第一步是先创建新版；这个动作在 4/4 时无法执行。 | 可达。先退 1 个旧副本，释放名额后创建新 Pod，待它可用再继续。 |
+| D · 只把配额上限调到 5 | 策略 1/0，配额 4/5 | 与 A 相同 | 判断可完成，建议三个新版都创建后再退旧，当时只空出 1 个名额。 | 可达。先创建 1 个新版，待其可用后退旧，再用释放的名额替换。 |
+| E · 只给外部 Pod 添加删除时间 | 策略 1/0，配额 4/4，外部 Pod 有删除时间 | 与 A 相同 | 判断可完成，明确答复无外部依赖。 | 依赖外部名额释放。外部 Pod 持续占位时受阻，实际释放后才有路径。 |
+
+表中策略依次为 `maxSurge/maxUnavailable`。kubectl v1.33.0 用五次 `get` 显示 Deployment、RS、Pod、配额和事件字段，操作人员可据此自行判断。K8sGPT v0.4.41 的 Pod、ReplicaSet、Deployment 分析器在五例都报告期望 3、运行可用 0，访问轨迹中均未读取配额。精简快照保留了 `availableReplicas=3`，省略了该版本生成告警所用的 `readyReplicas`。因此“0”应按这个输入条件解读。[上游 Deployment 分析器](https://github.com/k8sgpt-ai/k8sgpt/blob/v0.4.41/pkg/analyzer/deployment.go#L50-L73)
+
+HolmesGPT 0.46.0 每例使用新的会话，同一提示词问现行策略能否完成替换，并要求给出动作顺序和外部依赖。提示词提供相同的模型假设和五组字段查询。25 次查询全部成功，B、C 的返回值均含策略、3 个旧 Pod、外部占位和配额 4/4。两次都答可完成，B 的结论和 C 的第一步分别与可核查的约束冲突。这是单一模型、每例一次的观察。CLI 退出码均为 0。[五例逐项输出、实际查询返回和完整模型回答](results/rollout-baselines-2026-11-21.json)
+
 ## 复现命令
 
 准备上述三个版本和 MoonBit 工具链。HolmesGPT 在独立的 Python 3.12 环境中安装，Kubernetes 工具需要 Bash、kubectl 和 jq。
@@ -42,6 +58,8 @@ python eval/scripts/compare-baselines.py --output /tmp/moonmedic-results \
   --k8sgpt /path/to/k8sgpt --model-url http://127.0.0.1:18081/v1
 python eval/scripts/compare-baselines.py --output /tmp/moonmedic-fixed \
   --tools holmes --holmes-fixed-queries --holmes /tmp/moonmedic-holmes/bin/python
+python eval/scripts/compare-baselines.py --suite rollout --output /tmp/moonmedic-rollout \
+  --k8sgpt /path/to/k8sgpt --holmes /tmp/moonmedic-holmes/bin/python --holmes-fixed-queries
 ```
 
 本次使用 Windows CUDA 后端。本地模型为 [Qwen3-4B-Instruct-2507 Q4_K_M](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/tree/a06e946bb6b655725eafa393f4a9745d460374c9)，GGUF 的 SHA-256 为 `3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597`。使用 [llama.cpp b12499](https://github.com/ggml-org/llama.cpp/releases/tag/b12499) 启动本机服务。

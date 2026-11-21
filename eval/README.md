@@ -43,4 +43,4 @@ bash eval/scripts/run-all.sh     # 离线回放 + 断言(不需要集群)
 
 滚动模型限两个归属 RS、健康的旧副本、整数策略与单一无作用域 pods 配额，假定其他常驻用量固定、新 Pod 可变为可用、缩容后名额最终释放。搜索达到 10,000 个状态时报告未判定。CI 使用一次性 Kubernetes v1.33.1 kind 集群运行 [控制器实测脚本](scripts/rollout-kind.sh)，保存变更前、阻塞、恢复快照和反事实预测。
 
-[外部工具实测](BASELINES.md)使用 E01、E02 和 R01–R04 的同一组快照，记录 kubectl、K8sGPT、HolmesGPT 与 moonmedic 的输出和读取轨迹。
+[外部工具实测](BASELINES.md)覆盖六份准入快照和五份滚动发布快照。后者逐例对照 kubectl 的字段输出、K8sGPT 的告警、HolmesGPT 的回答和 moonmedic 的路径判断。[五例对照及复现方法](BASELINES.md#滚动发布同场对照)

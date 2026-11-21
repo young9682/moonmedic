@@ -1,0 +1,1238 @@
+{
+  "date": "2026-11-21",
+  "suite": "rollout",
+  "collection": "Five independent read-only loopback snapshot APIs; fixed-query HolmesGPT, one fresh ask per case.",
+  "versions": {
+    "kubectl": "v1.33.0",
+    "k8sgpt": "v0.4.41",
+    "holmesgpt": "0.46.0",
+    "model": "Qwen3-4B-Instruct-2507 Q4_K_M",
+    "gguf_sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+    "llama.cpp": "b12499",
+    "seed": 42,
+    "temperature": 0
+  },
+  "prompt": "Investigate Deployment web in namespace review. Use read-only kubernetes_jq_query on deployments, replicasets, pods, resourcequotas and events. Using this snapshot and its current strategy and quota, can the rollout finish with all desired new replicas available and all old replicas gone? Assume newly created Pods can become available and deletion eventually frees their slots. Other workloads stay unchanged except Pods already deleting. Give the evidence and a feasible order of actions, or explain what prevents completion. Identify any dependency on another workload. Separate observed state from possible next steps. Answer in under 180 words. For a controlled acquisition check use namespace review for every call. Copy these jq_expr values verbatim and do not add filters:\ndeployments: .items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}\nreplicasets: .items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}\npods: .items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}\nresourcequotas: .items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}\nevents: .items[] | {reason, message}",
+  "cases": {
+    "rollout-a-full": {
+      "fixture": "eval/fixtures/rollout-a-full.snapshot.json",
+      "git_blob": "fd707aa6d649c454d7e1ebd439644a3b5aa97c0c",
+      "kubectl": {
+        "deployments": "NAME   DESIRED   SURGE   UNAVAILABLE   AVAILABLE\nweb    3         1       0             3",
+        "replicasets": "NAME   OWNER   VERSION   DESIRED   ACTUAL   AVAILABLE\nnew    web     new       1         0        0\nold    web     old       3         3        3",
+        "pods": "NAME    OWNER    DELETING   PHASE\nold-0   old      <none>     Running\nold-1   old      <none>     Running\nold-2   old      <none>     Running\nother   <none>   <none>     Running",
+        "resourcequotas": "NAME    USED   HARD\nslots   4      4",
+        "events": "REASON   MESSAGE"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "problems": 1,
+        "messages": [
+          "Deployment review/web has 3 replicas but 0 are available with status running"
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/version",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/deployments",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/replicasets",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review/pods",
+            "status": 200
+          }
+        ]
+      },
+      "holmesgpt": {
+        "calls": [
+          {
+            "kind": "events",
+            "jq": ".items[] | {reason, message}",
+            "status": "success",
+            "returned": []
+          },
+          {
+            "kind": "pods",
+            "jq": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "old-0",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-1",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-2",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "other",
+                "owners": null,
+                "deleting": null,
+                "phase": "Running"
+              }
+            ]
+          },
+          {
+            "kind": "deployments",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "web",
+                "uid": "web",
+                "desired": 3,
+                "strategy": {
+                  "type": "RollingUpdate",
+                  "rollingUpdate": {
+                    "maxSurge": 1,
+                    "maxUnavailable": 0
+                  }
+                },
+                "template": {
+                  "app": "web",
+                  "version": "new"
+                },
+                "available": 3
+              }
+            ]
+          },
+          {
+            "kind": "resourcequotas",
+            "jq": ".items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "slots",
+                "used": {
+                  "pods": "4"
+                },
+                "hard": {
+                  "pods": "4"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "replicasets",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "new",
+                "uid": "new",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "new",
+                  "pod-template-hash": "new"
+                },
+                "desired": 1,
+                "actual": 0,
+                "available": 0
+              },
+              {
+                "name": "old",
+                "uid": "old",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "old",
+                  "pod-template-hash": "old"
+                },
+                "desired": 3,
+                "actual": 3,
+                "available": 3
+              }
+            ]
+          }
+        ],
+        "answer": "The rollout of deployment `web` in namespace `review` can complete. Evidence:\n\n- Desired replicas: 3 (new), 3 (old).  \n- `new` RS: desired=1, actual=0, available=0 → ready to scale.  \n- `old` RS: desired=3, actual=3, available=3 → all replicas active.  \n- Resource quota: `pods=4` (hard), current usage 4 → sufficient.  \n- No events indicate blocking issues.  \n\n**Feasible order**:  \n1. Scale `new` RS to 1 replica (via `kubectl scale rs/new --replicas=1`).  \n2. Wait for `new` pods to become available (phase=Running).  \n3. Delete `old` RS (via `kubectl delete rs/old`) once all new replicas are ready.  \n\nNo dependency on other workloads.  \nAll old replicas will be phased out as new ones become available.  \n\n**Observed state**:  \n- `new` RS has 0 actual replicas, not yet created.  \n- `old` RS has 3 active, healthy replicas.  \n- Quota is at limit but sufficient for rollout.  \n\n**Next steps**: Trigger rollout via `kubectl rollout restart deployment/web`."
+      },
+      "moonmedic": {
+        "rule_id": "rollout_blocked",
+        "title": "滚动发布路径分析",
+        "detail": "在当前可用副本下限与配额约束下无法完成替换。已检查 1 个状态。终点占用 4/4，新版期望/实际 1/0，可用 3，最低可用 3。假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。",
+        "confidence": 1,
+        "layer": "projection",
+        "evidence": [
+          "旧版可用 3，新版期望/实际/可用 1/0/0，配额 4/4，其他终止 Pod 0"
+        ],
+        "evidence_refs": [
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.strategy.rollingUpdate",
+            "observed_value": "{\"maxSurge\":1,\"maxUnavailable\":0}"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.replicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "old",
+            "field_path": "status.availableReplicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "new",
+            "field_path": "spec.replicas",
+            "observed_value": "1"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ResourceQuota",
+            "object_name": "slots",
+            "field_path": "status",
+            "observed_value": "{\"hard\":{\"pods\":\"4\"},\"used\":{\"pods\":\"4\"}}"
+          }
+        ]
+      }
+    },
+    "rollout-b-more-surge": {
+      "fixture": "eval/fixtures/rollout-b-more-surge.snapshot.json",
+      "git_blob": "45957a7dcaf5b3a239a6c773bc9e42a7df1bbb4e",
+      "kubectl": {
+        "deployments": "NAME   DESIRED   SURGE   UNAVAILABLE   AVAILABLE\nweb    3         2       0             3",
+        "replicasets": "NAME   OWNER   VERSION   DESIRED   ACTUAL   AVAILABLE\nnew    web     new       1         0        0\nold    web     old       3         3        3",
+        "pods": "NAME    OWNER    DELETING   PHASE\nold-0   old      <none>     Running\nold-1   old      <none>     Running\nold-2   old      <none>     Running\nother   <none>   <none>     Running",
+        "resourcequotas": "NAME    USED   HARD\nslots   4      4",
+        "events": "REASON   MESSAGE"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "problems": 1,
+        "messages": [
+          "Deployment review/web has 3 replicas but 0 are available with status running"
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/version",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/deployments",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/replicasets",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review/pods",
+            "status": 200
+          }
+        ]
+      },
+      "holmesgpt": {
+        "calls": [
+          {
+            "kind": "resourcequotas",
+            "jq": ".items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "slots",
+                "used": {
+                  "pods": "4"
+                },
+                "hard": {
+                  "pods": "4"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "events",
+            "jq": ".items[] | {reason, message}",
+            "status": "success",
+            "returned": []
+          },
+          {
+            "kind": "deployments",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "web",
+                "uid": "web",
+                "desired": 3,
+                "strategy": {
+                  "type": "RollingUpdate",
+                  "rollingUpdate": {
+                    "maxSurge": 2,
+                    "maxUnavailable": 0
+                  }
+                },
+                "template": {
+                  "app": "web",
+                  "version": "new"
+                },
+                "available": 3
+              }
+            ]
+          },
+          {
+            "kind": "pods",
+            "jq": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "old-0",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-1",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-2",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "other",
+                "owners": null,
+                "deleting": null,
+                "phase": "Running"
+              }
+            ]
+          },
+          {
+            "kind": "replicasets",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "new",
+                "uid": "new",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "new",
+                  "pod-template-hash": "new"
+                },
+                "desired": 1,
+                "actual": 0,
+                "available": 0
+              },
+              {
+                "name": "old",
+                "uid": "old",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "old",
+                  "pod-template-hash": "old"
+                },
+                "desired": 3,
+                "actual": 3,
+                "available": 3
+              }
+            ]
+          }
+        ],
+        "answer": "The rollout of deployment `web` in namespace `review` can complete. Evidence:\n\n- Desired replicas: 3 (all new).\n- Old ReplicaSet (`old`) has 3 actual replicas, all `Running`, no deletion.\n- New ReplicaSet (`new`) has desired=1, actual=0, available=0 — not yet active.\n- Resource quota `slots` has `pods: 4` (hard), sufficient for 3 new pods.\n- No events indicate blocking issues.\n\n**Feasible order of actions**:\n1. Wait for new ReplicaSet to scale to 1 replica (current strategy allows max surge of 2, but max unavailable is 0 — no old pods can be unavailable).\n2. Once new pods are available, the old pods will be marked for deletion by the deployment controller.\n\n**Dependency**: None. The rollout is self-contained. Old pods remain `Running` but are not actively serving; their deletion is managed by the deployment controller. Completion requires no external intervention."
+      },
+      "moonmedic": {
+        "rule_id": "rollout_blocked",
+        "title": "滚动发布路径分析",
+        "detail": "在当前可用副本下限与配额约束下无法完成替换。已检查 2 个状态。终点占用 4/4，新版期望/实际 2/0，可用 3，最低可用 3。假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。",
+        "confidence": 1,
+        "layer": "projection",
+        "evidence": [
+          "旧版可用 3，新版期望/实际/可用 1/0/0，配额 4/4，其他终止 Pod 0"
+        ],
+        "evidence_refs": [
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.strategy.rollingUpdate",
+            "observed_value": "{\"maxSurge\":2,\"maxUnavailable\":0}"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.replicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "old",
+            "field_path": "status.availableReplicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "new",
+            "field_path": "spec.replicas",
+            "observed_value": "1"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ResourceQuota",
+            "object_name": "slots",
+            "field_path": "status",
+            "observed_value": "{\"hard\":{\"pods\":\"4\"},\"used\":{\"pods\":\"4\"}}"
+          }
+        ]
+      }
+    },
+    "rollout-c-retire-first": {
+      "fixture": "eval/fixtures/rollout-c-retire-first.snapshot.json",
+      "git_blob": "fa2505bf7360a8a9e1f614010a9f4218d5ba4230",
+      "kubectl": {
+        "deployments": "NAME   DESIRED   SURGE   UNAVAILABLE   AVAILABLE\nweb    3         1       1             3",
+        "replicasets": "NAME   OWNER   VERSION   DESIRED   ACTUAL   AVAILABLE\nnew    web     new       1         0        0\nold    web     old       3         3        3",
+        "pods": "NAME    OWNER    DELETING   PHASE\nold-0   old      <none>     Running\nold-1   old      <none>     Running\nold-2   old      <none>     Running\nother   <none>   <none>     Running",
+        "resourcequotas": "NAME    USED   HARD\nslots   4      4",
+        "events": "REASON   MESSAGE"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "problems": 1,
+        "messages": [
+          "Deployment review/web has 3 replicas but 0 are available with status running"
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/version",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/replicasets",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/deployments",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review/pods",
+            "status": 200
+          }
+        ]
+      },
+      "holmesgpt": {
+        "calls": [
+          {
+            "kind": "pods",
+            "jq": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "old-0",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-1",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-2",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "other",
+                "owners": null,
+                "deleting": null,
+                "phase": "Running"
+              }
+            ]
+          },
+          {
+            "kind": "resourcequotas",
+            "jq": ".items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "slots",
+                "used": {
+                  "pods": "4"
+                },
+                "hard": {
+                  "pods": "4"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "replicasets",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "new",
+                "uid": "new",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "new",
+                  "pod-template-hash": "new"
+                },
+                "desired": 1,
+                "actual": 0,
+                "available": 0
+              },
+              {
+                "name": "old",
+                "uid": "old",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "old",
+                  "pod-template-hash": "old"
+                },
+                "desired": 3,
+                "actual": 3,
+                "available": 3
+              }
+            ]
+          },
+          {
+            "kind": "events",
+            "jq": ".items[] | {reason, message}",
+            "status": "success",
+            "returned": []
+          },
+          {
+            "kind": "deployments",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "web",
+                "uid": "web",
+                "desired": 3,
+                "strategy": {
+                  "type": "RollingUpdate",
+                  "rollingUpdate": {
+                    "maxSurge": 1,
+                    "maxUnavailable": 1
+                  }
+                },
+                "template": {
+                  "app": "web",
+                  "version": "new"
+                },
+                "available": 3
+              }
+            ]
+          }
+        ],
+        "answer": "The rollout of deployment `web` in namespace `review` **can complete**.  \n\n**Observed state**:  \n- `replicaSet \"old\"` has 3 desired, 3 actual, 3 available replicas (all active).  \n- `replicaSet \"new\"` has 1 desired, 0 actual, 0 available — ready to scale.  \n- Resource quota `slots` has `pods: 4` (hard limit), sufficient for 4 pods (3 old + 1 new).  \n- No events indicate failures.  \n\n**Feasible order**:  \n1. Let the rolling update proceed: `maxSurge=1` allows one new pod to start before old ones terminate.  \n2. As old pods terminate, their slots are freed.  \n3. Once all old pods are gone, the new replica set will reach 1 available replica.  \n\n**No dependency** on other workloads.  \n\n**All desired new replicas will be available** when the rollout completes. No constraints prevent finalization."
+      },
+      "moonmedic": {
+        "rule_id": "rollout_reachable",
+        "title": "滚动发布路径分析",
+        "detail": "存在完成替换的路径。假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。",
+        "confidence": 1,
+        "layer": "projection",
+        "evidence": [
+          "旧版可用 3，新版期望/实际/可用 1/0/0，配额 4/4，其他终止 Pod 0",
+          "scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → release_old_slot → create_new_pod → new_available"
+        ],
+        "evidence_refs": [
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.strategy.rollingUpdate",
+            "observed_value": "{\"maxSurge\":1,\"maxUnavailable\":1}"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.replicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "old",
+            "field_path": "status.availableReplicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "new",
+            "field_path": "spec.replicas",
+            "observed_value": "1"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ResourceQuota",
+            "object_name": "slots",
+            "field_path": "status",
+            "observed_value": "{\"hard\":{\"pods\":\"4\"},\"used\":{\"pods\":\"4\"}}"
+          }
+        ]
+      }
+    },
+    "rollout-d-extra-slot": {
+      "fixture": "eval/fixtures/rollout-d-extra-slot.snapshot.json",
+      "git_blob": "f1c3781d157688addb39eff04d299558c0dbf546",
+      "kubectl": {
+        "deployments": "NAME   DESIRED   SURGE   UNAVAILABLE   AVAILABLE\nweb    3         1       0             3",
+        "replicasets": "NAME   OWNER   VERSION   DESIRED   ACTUAL   AVAILABLE\nnew    web     new       1         0        0\nold    web     old       3         3        3",
+        "pods": "NAME    OWNER    DELETING   PHASE\nold-0   old      <none>     Running\nold-1   old      <none>     Running\nold-2   old      <none>     Running\nother   <none>   <none>     Running",
+        "resourcequotas": "NAME    USED   HARD\nslots   4      5",
+        "events": "REASON   MESSAGE"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "problems": 1,
+        "messages": [
+          "Deployment review/web has 3 replicas but 0 are available with status running"
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/version",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/deployments",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review/pods",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/replicasets",
+            "status": 200
+          }
+        ]
+      },
+      "holmesgpt": {
+        "calls": [
+          {
+            "kind": "events",
+            "jq": ".items[] | {reason, message}",
+            "status": "success",
+            "returned": []
+          },
+          {
+            "kind": "pods",
+            "jq": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "old-0",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-1",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-2",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "other",
+                "owners": null,
+                "deleting": null,
+                "phase": "Running"
+              }
+            ]
+          },
+          {
+            "kind": "deployments",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "web",
+                "uid": "web",
+                "desired": 3,
+                "strategy": {
+                  "type": "RollingUpdate",
+                  "rollingUpdate": {
+                    "maxSurge": 1,
+                    "maxUnavailable": 0
+                  }
+                },
+                "template": {
+                  "app": "web",
+                  "version": "new"
+                },
+                "available": 3
+              }
+            ]
+          },
+          {
+            "kind": "resourcequotas",
+            "jq": ".items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "slots",
+                "used": {
+                  "pods": "4"
+                },
+                "hard": {
+                  "pods": "5"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "replicasets",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "new",
+                "uid": "new",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "new",
+                  "pod-template-hash": "new"
+                },
+                "desired": 1,
+                "actual": 0,
+                "available": 0
+              },
+              {
+                "name": "old",
+                "uid": "old",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "old",
+                  "pod-template-hash": "old"
+                },
+                "desired": 3,
+                "actual": 3,
+                "available": 3
+              }
+            ]
+          }
+        ],
+        "answer": "The rollout of deployment `web` in namespace `review` can complete. Evidence:\n\n- Deployment `web` desires 3 replicas, using RollingUpdate with `maxUnavailable: 0`.\n- ReplicaSet `new` (desired: 1, actual: 0) is pending creation; `old` (desired: 3, actual: 3, available: 3) is active.\n- All 3 old pods (`old-0`, `old-1`, `old-2`) are `Running` and not deleting.\n- Resource quota allows 5 pods (`used: 4`, `hard: 5`), sufficient for 3 new replicas.\n\n**Feasible order**:\n1. Create 3 new pods via `new` ReplicaSet (max surge 1 allows temporary overage).\n2. Once all new pods are `Running`, delete old pods (no max unavailable constraint).\n3. Deletion frees slots; no other workloads depend on this.\n\nNo dependency on other workloads. Rollout completes with all desired replicas available and old replicas gone."
+      },
+      "moonmedic": {
+        "rule_id": "rollout_reachable",
+        "title": "滚动发布路径分析",
+        "detail": "存在完成替换的路径。假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。",
+        "confidence": 1,
+        "layer": "projection",
+        "evidence": [
+          "旧版可用 3，新版期望/实际/可用 1/0/0，配额 4/5，其他终止 Pod 0",
+          "create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → release_old_slot"
+        ],
+        "evidence_refs": [
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.strategy.rollingUpdate",
+            "observed_value": "{\"maxSurge\":1,\"maxUnavailable\":0}"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.replicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "old",
+            "field_path": "status.availableReplicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "new",
+            "field_path": "spec.replicas",
+            "observed_value": "1"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ResourceQuota",
+            "object_name": "slots",
+            "field_path": "status",
+            "observed_value": "{\"hard\":{\"pods\":\"5\"},\"used\":{\"pods\":\"4\"}}"
+          }
+        ]
+      }
+    },
+    "rollout-e-external-release": {
+      "fixture": "eval/fixtures/rollout-e-external-release.snapshot.json",
+      "git_blob": "a1450bf2a91432054ed2efa067da71415db9ab07",
+      "kubectl": {
+        "deployments": "NAME   DESIRED   SURGE   UNAVAILABLE   AVAILABLE\nweb    3         1       0             3",
+        "replicasets": "NAME   OWNER   VERSION   DESIRED   ACTUAL   AVAILABLE\nnew    web     new       1         0        0\nold    web     old       3         3        3",
+        "pods": "NAME    OWNER    DELETING               PHASE\nold-0   old      <none>                 Running\nold-1   old      <none>                 Running\nold-2   old      <none>                 Running\nother   <none>   2026-11-20T00:00:00Z   Running",
+        "resourcequotas": "NAME    USED   HARD\nslots   4      4",
+        "events": "REASON   MESSAGE"
+      },
+      "k8sgpt": {
+        "status": "ProblemDetected",
+        "problems": 1,
+        "messages": [
+          "Deployment review/web has 3 replicas but 0 are available with status running"
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/version",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/replicasets",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/apis/apps/v1/namespaces/review/deployments",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/api/v1/namespaces/review/pods",
+            "status": 200
+          }
+        ]
+      },
+      "holmesgpt": {
+        "calls": [
+          {
+            "kind": "replicasets",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "new",
+                "uid": "new",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "new",
+                  "pod-template-hash": "new"
+                },
+                "desired": 1,
+                "actual": 0,
+                "available": 0
+              },
+              {
+                "name": "old",
+                "uid": "old",
+                "owners": [
+                  {
+                    "kind": "Deployment",
+                    "name": "web",
+                    "uid": "web",
+                    "controller": true
+                  }
+                ],
+                "template": {
+                  "app": "web",
+                  "version": "old",
+                  "pod-template-hash": "old"
+                },
+                "desired": 3,
+                "actual": 3,
+                "available": 3
+              }
+            ]
+          },
+          {
+            "kind": "events",
+            "jq": ".items[] | {reason, message}",
+            "status": "success",
+            "returned": []
+          },
+          {
+            "kind": "deployments",
+            "jq": ".items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "web",
+                "uid": "web",
+                "desired": 3,
+                "strategy": {
+                  "type": "RollingUpdate",
+                  "rollingUpdate": {
+                    "maxSurge": 1,
+                    "maxUnavailable": 0
+                  }
+                },
+                "template": {
+                  "app": "web",
+                  "version": "new"
+                },
+                "available": 3
+              }
+            ]
+          },
+          {
+            "kind": "resourcequotas",
+            "jq": ".items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "slots",
+                "used": {
+                  "pods": "4"
+                },
+                "hard": {
+                  "pods": "4"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "pods",
+            "jq": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}",
+            "status": "success",
+            "returned": [
+              {
+                "name": "old-0",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-1",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "old-2",
+                "owners": [
+                  {
+                    "kind": "ReplicaSet",
+                    "name": "old",
+                    "uid": "old",
+                    "controller": true
+                  }
+                ],
+                "deleting": null,
+                "phase": "Running"
+              },
+              {
+                "name": "other",
+                "owners": null,
+                "deleting": "2026-11-20T00:00:00Z",
+                "phase": "Running"
+              }
+            ]
+          }
+        ],
+        "answer": "The rollout of deployment `web` in namespace `review` **can complete**.  \n\n**Observed state**:  \n- Deployment `web` desires 3 replicas, using rolling update with `maxUnavailable: 0`.  \n- ReplicaSet `old` has 3 active pods (`old-0`, `old-1`, `old-2`), all `Running`.  \n- ReplicaSet `new` has 0 actual replicas, desired 1.  \n- Resource quota `slots` has `hard: pods=4`, `used: pods=4` — sufficient.  \n- No events indicate failures.  \n\n**Feasible order**:  \n1. Deploy `new` replica (1 pod).  \n2. Once available, delete `old` pods (all 3).  \n\n**Dependency**: None.  \nAll old replicas are active and will be deleted after new ones are ready. Quota allows full rollout. No blocking constraints."
+      },
+      "moonmedic": {
+        "rule_id": "rollout_release_required",
+        "title": "滚动发布路径分析",
+        "detail": "仅在外部终止 Pod 释放名额后存在完成路径。假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。",
+        "confidence": 1,
+        "layer": "projection",
+        "evidence": [
+          "旧版可用 3，新版期望/实际/可用 1/0/0，配额 4/4，其他终止 Pod 1",
+          "release_other_slot → create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → scale_new_rs(+1) → release_old_slot → create_new_pod → new_available → scale_old_rs(-1) → release_old_slot"
+        ],
+        "evidence_refs": [
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.strategy.rollingUpdate",
+            "observed_value": "{\"maxSurge\":1,\"maxUnavailable\":0}"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "Deployment",
+            "object_name": "web",
+            "field_path": "spec.replicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "old",
+            "field_path": "status.availableReplicas",
+            "observed_value": "3"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ReplicaSet",
+            "object_name": "new",
+            "field_path": "spec.replicas",
+            "observed_value": "1"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "ResourceQuota",
+            "object_name": "slots",
+            "field_path": "status",
+            "observed_value": "{\"hard\":{\"pods\":\"4\"},\"used\":{\"pods\":\"4\"}}"
+          },
+          {
+            "source": "snapshot",
+            "resource_kind": "Pod",
+            "object_name": "other",
+            "field_path": "metadata.deletionTimestamp",
+            "observed_value": "\"2026-11-20T00:00:00Z\""
+          }
+        ]
+      }
+    }
+  }
+}
