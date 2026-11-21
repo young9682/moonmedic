@@ -16,6 +16,10 @@ SCENARIOS = (
     "e01-quota-zero-pods", "e02-quota-partial-pods", "r01-quota-missing-resources",
     "r02-generic-validation", "r03-webhook-with-saturation", "r04-unmatched-quota",
 )
+ROLLOUT_SCENARIOS = (
+    "rollout-a-full", "rollout-b-more-surge", "rollout-c-retire-first",
+    "rollout-d-extra-slot", "rollout-e-external-release",
+)
 RESOURCES = {
     "v1": {
         "namespaces": ("Namespace", None),
@@ -35,6 +39,22 @@ HOLMES_PROJECTIONS = {
     "pods": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, phase: .status.phase}",
     "resourcequotas": ".items[] | {name: .metadata.name, used: .status.used, hard: .status.hard}",
     "events": '.items[] | select(.reason == "FailedCreate") | {object: .involvedObject.name, reason, message}',
+}
+ROLLOUT_PROJECTIONS = {
+    "deployments": ".items[] | {name: .metadata.name, uid: .metadata.uid, desired: .spec.replicas, strategy: .spec.strategy, template: .spec.template.metadata.labels, available: .status.availableReplicas}",
+    "replicasets": ".items[] | {name: .metadata.name, uid: .metadata.uid, owners: .metadata.ownerReferences, template: .spec.template.metadata.labels, desired: .spec.replicas, actual: .status.replicas, available: .status.availableReplicas}",
+    "pods": ".items[] | {name: .metadata.name, owners: .metadata.ownerReferences, deleting: .metadata.deletionTimestamp, phase: .status.phase}",
+    "resourcequotas": HOLMES_PROJECTIONS["resourcequotas"],
+    "events": ".items[] | {reason, message}",
+}
+# Explicit columns keep missing fixture fields visible and avoid deriving RS membership
+# from selectors that the compact snapshots do not contain.
+ROLLOUT_COLUMNS = {
+    "deployments": "NAME:.metadata.name,DESIRED:.spec.replicas,SURGE:.spec.strategy.rollingUpdate.maxSurge,UNAVAILABLE:.spec.strategy.rollingUpdate.maxUnavailable,AVAILABLE:.status.availableReplicas",
+    "replicasets": "NAME:.metadata.name,OWNER:.metadata.ownerReferences[0].uid,VERSION:.spec.template.metadata.labels.version,DESIRED:.spec.replicas,ACTUAL:.status.replicas,AVAILABLE:.status.availableReplicas",
+    "pods": "NAME:.metadata.name,OWNER:.metadata.ownerReferences[0].uid,DELETING:.metadata.deletionTimestamp,PHASE:.status.phase",
+    "resourcequotas": "NAME:.metadata.name,USED:.status.used.pods,HARD:.status.hard.pods",
+    "events": "REASON:.reason,MESSAGE:.message",
 }
 
 
@@ -174,6 +194,7 @@ def compare(case, args):
     fixture = ROOT / "eval" / "fixtures" / (case + ".snapshot.json")
     raw = fixture.read_bytes()
     api = SnapshotAPI(json.loads(raw))
+    rollout = case in ROLLOUT_SCENARIOS
     server = server_for(api)
     worker = Thread(target=server.serve_forever, daemon=True)
     worker.start()
@@ -207,6 +228,9 @@ def compare(case, args):
                     ("quota", ["describe", "resourcequotas"]),
                     ("events", ["get", "events", "-o", "json"]),
                 ]
+                if rollout:
+                    commands = [(kind, ["get", kind, "-o", "custom-columns=" + columns])
+                                for kind, columns in ROLLOUT_COLUMNS.items()]
                 prefix = [args.kubectl, "--kubeconfig", kubeconfig, "--cache-dir", folder / "cache",
                           "--request-timeout=10s", "-n", api.namespace]
                 records["tools"]["kubectl"] = {
@@ -221,7 +245,7 @@ def compare(case, args):
                     "--output", "json", "--no-cache",
                 ], env, api)
             if "holmes" in args.tools:
-                records["tools"]["holmes"] = run_holmes(args, api, env, folder)
+                records["tools"]["holmes"] = run_holmes(args, api, env, folder, rollout)
             if "moonmedic" in args.tools:
                 records["tools"]["moonmedic"] = execute([
                     "moon", "run", "cmd/main", "--", "--snapshot", fixture, "--json",
@@ -240,7 +264,7 @@ def compare(case, args):
         worker.join()
 
 
-def run_holmes(args, api, env, folder):
+def run_holmes(args, api, env, folder, rollout):
     config, model_list, response = (folder / f"{name}.json" for name in ("holmes", "model-list", "response"))
     put_json(config, {"toolsets": {"kubernetes/core": {"enabled": True}}})
     put_json(model_list, {"benchmark": {"model": f"openai/{args.model}",
@@ -261,11 +285,24 @@ def run_holmes(args, api, env, folder):
         "resource, current used/hard, and the quota increase for missing replicas. "
         "Distinguish observed facts from conclusions, state missing evidence, and keep the final answer under 180 words."
     )
+    projections = HOLMES_PROJECTIONS
+    if rollout:
+        projections = ROLLOUT_PROJECTIONS
+        prompt = (
+            f"Investigate Deployment {api.snapshot['target_name']} in namespace {api.namespace}. "
+            "Use read-only kubernetes_jq_query on deployments, replicasets, pods, resourcequotas and events. "
+            "Using this snapshot and its current strategy and quota, can the rollout finish with all desired "
+            "new replicas available and all old replicas gone? Assume newly created Pods can become available "
+            "and deletion eventually frees their slots. Other workloads stay unchanged except Pods already deleting. "
+            "Give the evidence and a feasible order of actions, or explain what prevents completion. "
+            "Identify any dependency on another workload. Separate observed state from possible next steps. "
+            "Answer in under 180 words."
+        )
     if args.holmes_fixed_queries:
         prompt += (
             f" For a controlled acquisition check use namespace {api.namespace} for every call. "
             "Copy these jq_expr values verbatim and do not add filters:\n"
-            + "\n".join(f"{kind}: {projection}" for kind, projection in HOLMES_PROJECTIONS.items())
+            + "\n".join(f"{kind}: {projection}" for kind, projection in projections.items())
         )
     command = [args.holmes, Path(__file__).with_name("holmes-baseline.py"), args.git_bash or ""]
     if args.git_bash:
@@ -286,7 +323,9 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tools", nargs="+", choices=["kubectl", "k8sgpt", "holmes", "moonmedic"],
                         default=["kubectl", "k8sgpt", "holmes", "moonmedic"])
-    parser.add_argument("--scenario", action="append", choices=SCENARIOS)
+    cases = parser.add_mutually_exclusive_group()
+    cases.add_argument("--scenario", action="append", choices=SCENARIOS + ROLLOUT_SCENARIOS)
+    cases.add_argument("--suite", choices=["admission", "rollout"], default="admission")
     parser.add_argument("--kubectl", default="kubectl")
     parser.add_argument("--k8sgpt", default="k8sgpt")
     parser.add_argument("--holmes", default="python", help="Python executable of the HolmesGPT environment")
@@ -301,7 +340,8 @@ def main():
     if address.scheme != "http" or address.hostname != "127.0.0.1" or address.username:
         parser.error("--model-url must point to an unauthenticated loopback HTTP server")
     args.output.mkdir(parents=True, exist_ok=True)
-    outcome = [compare(case, args) for case in args.scenario or SCENARIOS]
+    scenarios = ROLLOUT_SCENARIOS if args.suite == "rollout" else SCENARIOS
+    outcome = [compare(case, args) for case in args.scenario or scenarios]
     if not all(outcome):
         parser.exit(1, "One or more CLI invocations failed. Inspect the saved records.\n")
 
