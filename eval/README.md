@@ -39,11 +39,13 @@ bash eval/scripts/run-all.sh     # 离线回放 + 断言(不需要集群)
 
 ## 指标口径
 
-单测 55 项，离线 CLI 回放 15 项。除表中十项外，rollout A–E 使用无拒绝消息的配对快照，每次只变更一项。A 满额受阻，B 增加 surge 仍受阻，C 允许先退旧后可行，D 增加一个 Pod 名额后可行，E 依赖外部终止 Pod 释放名额。可行案例按顺序断言完整动作序列。另有 148 组健康起始状态的可达性校验。运行 `python eval/scripts/check-rollout-inputs.py` 可验证 16 项输入边界及 5 组百分比策略。
+单测 56 项，离线 CLI 回放 15 项。除表中十项外，rollout A–E 使用无拒绝消息的配对快照，每次只变更一项。A 满额受阻，B 增加 surge 仍受阻，C 允许先退旧后可行，D 增加一个 Pod 名额后可行，E 依赖外部终止 Pod 释放名额。可行案例按顺序断言完整动作序列。另有 148 组健康起始状态的可达性校验。运行 `python eval/scripts/check-rollout-inputs.py` 可验证输入边界、百分比策略、历史 RS 和重叠配额。
 
 滚动模型要求唯一匹配当前模板的 RS、最多一个尚未清空的旧 RS，以及健康的旧版活动副本。其他历史 RS 必须满足期望副本为 0、状态计数为 0、无归属的非终态 Pod，输出会列出这些 RS 的证据。仍在终止的旧 Pod 会占用名额，多个旧 RS 尚未清空或证据不足时报告未判定。模型假定其他常驻用量固定、新 Pod 可用、缩容后名额最终释放。搜索达到 10,000 个状态时报告未判定。
 
 配额模型要求同一命名空间内至少有一份配额，且每份仅约束无作用域的 `pods`。逐份检查 `spec.hard`、`status.hard` 和 `status.used`，并与完整 Pod 列表核对用量。搜索使用最低上限，报告列出所有上限等于该值的对象。作用域、其他资源项或任何一份配额的状态不一致都会使路径未判定。离线检查覆盖两份 4/4 并列、只放宽一份、两份都放宽以及无效输入，共 10 例。[Kubernetes 配额准入实现](https://github.com/kubernetes/kubernetes/blob/v1.33.1/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/controller.go#L408-L492)
+
+当前无法完成替换时，引擎还可反推保持发布策略和外部 Pod 占用所需的最小配额。提高配额只会增加允许创建 Pod 的状态转移，因此可以用可达性搜索二分最小值。报告附该上限对应的路径和所有低于目标的配额对象。搜索或计数超限时，保留当前诊断，最小值报告为未判定。回归还验证了仅有 1 个新版和 1 个外部 Pod 时，有效上限 3 仍受阻、4 可达，当前上限为 2 和 3 的两份配额都需要提高。
 
 快照须包含两项发布参数。百分比按目标副本数折算，`maxSurge` 向上取整，`maxUnavailable` 向下取整。合法策略折算后若两项都为零，最低可用数按允许 1 个不可用副本计算。输出同时保留原策略字段和生效值。[Kubernetes v1.33.1 取整实现](https://github.com/kubernetes/kubernetes/blob/v1.33.1/pkg/controller/deployment/util/deployment_util.go#L814-L840)
 

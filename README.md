@@ -149,7 +149,7 @@ moon run cmd/main -- prod payments-api
 ```bash
 moon fmt --check   # 格式
 moon check         # 类型检查
-moon test          # 55 个测试
+moon test          # 56 个测试
 bash eval/scripts/run-all.sh
 ```
 
@@ -176,6 +176,8 @@ R01–R05 覆盖缺资源声明、通用校验、Webhook 与配额饱和共存�
 Deployment 可以保留已缩到 0 的历史 ReplicaSet。当它们的状态也显示为 0，且完整 Pod 列表中没有它们的非终态 Pod，路径分析仍可处理当前发布。[模型范围与回归](eval/README.md#指标口径)
 
 同一命名空间有多份无作用域 `pods` 配额时，路径分析逐份核对用量，按其中最低的上限搜索，并列出所有上限等于该值的配额对象。
+
+配额受阻时，报告可给出保持现行发布策略和外部 Pod 占用所需的最小配额。报告列出低于该值的配额对象和扩容后可执行的替换顺序。例如两份配额都是 4/4 时，结果可以要求两份都把上限提到 5。[模型与回归](eval/README.md#指标口径)
 
 ## 限制
 
