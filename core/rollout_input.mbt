@@ -417,6 +417,17 @@ fn rollout_finding(
           "最小 pods 配额未判定，超出模型的搜索或计数范围",
         )
     }
+    match minimum_rollout_unavailability(policy, initial) {
+      Ok((required, policy_path)) => {
+        evidence.push(
+          "保持配额、maxSurge 与外部 Pod 占用时，maxUnavailable 至少为 \{required}，最低可用副本数从 \{replicas-policy.unavailable} 降到 \{replicas-required}",
+        )
+        evidence.push(
+          "放宽 maxUnavailable 后的路径 \{policy_path.join(" → ")}",
+        )
+      }
+      Err(reason) => evidence.push(reason)
+    }
   }
   for entry in previous {
     let (uid, rs) = entry

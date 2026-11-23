@@ -19,5 +19,9 @@
     "rollout_reachable",
     "rollout_release_required",
     "quota_exceeded"
+  ],
+  "evidence_contains": [
+    "maxUnavailable 至少为 1，最低可用副本数从 3 降到 2",
+    "放宽 maxUnavailable 后的路径 scale_new_rs(+1) → scale_old_rs(-1) →"
   ]
 }

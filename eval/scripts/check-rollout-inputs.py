@@ -173,6 +173,10 @@ with TemporaryDirectory() as folder:
             changes = "、".join(f"{q['metadata']['name']} 4→5" for q in paired["quotas"]
                                if q["status"]["hard"]["pods"] == "4")
             assert f"需调整的配额 {changes}" in projected["evidence"]
+            assert any("maxUnavailable 至少为 1，最低可用副本数从 3 降到 2" in item
+                       for item in projected["evidence"])
+            assert any(item.startswith("放宽 maxUnavailable 后的路径 scale_old_rs(-1)")
+                       for item in projected["evidence"])
 
     quota_mutations = [
         (("quotas", 1, "status", "used", "pods"), "3"),
@@ -211,6 +215,7 @@ with TemporaryDirectory() as folder:
     projected, = projections(diagnose(partial, fixture))
     assert projected["rule_id"] == "rollout_blocked"
     assert "需调整的配额 slots 2→4、guard-slots 3→4" in projected["evidence"]
+    assert "固定配额下无法仅靠放宽 maxUnavailable 完成替换，完成态需要 4 个名额，生效上限为 2" in projected["evidence"]
     assert any(item.startswith("扩配额后的路径 create_new_pod") for item in projected["evidence"])
     for cap, expected in (("3", "rollout_blocked"), ("4", "rollout_reachable")):
         for quota in partial["quotas"][:2]:

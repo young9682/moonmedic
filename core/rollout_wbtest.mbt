@@ -42,6 +42,13 @@ test "healthy starts agree with the first replacement criterion" {
                     assert_eq(cap, replicas + 2)
                     assert_true(path.contains("create_new_pod"))
                     assert_false(path.contains("release_other_slot"))
+                    guard minimum_rollout_unavailability(policy, start)
+                      is Ok((budget, actions)) else {
+                      fail("missing fixed-quota policy plan")
+                    }
+                    assert_eq(budget, 1)
+                    assert_eq(actions[0], "scale_old_rs(-1)")
+                    assert_false(actions.contains("release_other_slot"))
                   }
                 }
                 SearchLimit => fail("small search exceeded its budget")

@@ -142,6 +142,42 @@ fn minimum_rollout_quota(
 }
 
 ///|
+/// Keep quota and external occupancy fixed. Try budgets in order because a
+/// larger budget changes how many old replicas the controller retires at once.
+fn minimum_rollout_unavailability(
+  policy : RollPolicy,
+  initial : RollState,
+) -> Result[(Int32, Array[String]), String] {
+  let final_occupancy = policy.fixed_other +
+    initial.other_retiring +
+    policy.replicas
+  if final_occupancy > policy.hard {
+    return Err(
+      "固定配额下无法仅靠放宽 maxUnavailable 完成替换，完成态需要 \{final_occupancy} 个名额，生效上限为 \{policy.hard}",
+    )
+  }
+  let last = minimum(policy.replicas, policy.unavailable + 16)
+  for candidate in (policy.unavailable + 1)..<(last + 1) {
+    match
+      rollout_search({ ..policy, unavailable: candidate, }, initial, false) {
+      Path(path) => return Ok((candidate, path))
+      Blocked(_, _) => ()
+      SearchLimit =>
+        return Err(
+          "最小 maxUnavailable 未判定，路径搜索达到状态上限",
+        )
+    }
+  }
+  if last < policy.replicas {
+    Err(
+      "最小 maxUnavailable 未判定，已检查当前值以上的 16 个候选值",
+    )
+  } else {
+    Err("固定配额下无法仅靠放宽 maxUnavailable 完成替换")
+  }
+}
+
+///|
 fn minimum(a : Int32, b : Int32) -> Int32 {
   if a < b {
     a
