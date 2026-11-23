@@ -48,14 +48,19 @@ def owner(name):
     return [{"kind": "ReplicaSet", "controller": True, "name": name, "uid": name}]
 
 
+def with_value(snapshot, path, value):
+    case = deepcopy(snapshot)
+    target = case
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    return case
+
+
 with TemporaryDirectory() as folder:
     fixture = Path(folder) / "input.json"
     for path, value in mutations:
-        case = deepcopy(base)
-        target = case
-        for key in path[:-1]:
-            target = target[key]
-        target[path[-1]] = value
+        case = with_value(base, path, value)
         assert_undetermined(diagnose(case, fixture), path)
 
     # Three desired replicas and four occupied slots in all cases.
@@ -132,11 +137,7 @@ with TemporaryDirectory() as folder:
         (("pods", 3, "metadata", "ownerReferences"), owner("history")),
     ]
     for path, value in history_mutations:
-        case = deepcopy(historical)
-        obj = case
-        for key in path[:-1]:
-            obj = obj[key]
-        obj[path[-1]] = value
+        case = with_value(historical, path, value)
         assert_undetermined(diagnose(case, fixture), path)
 
     deleting = deepcopy(historical)
@@ -144,5 +145,45 @@ with TemporaryDirectory() as folder:
         ownerReferences=owner("history"), deletionTimestamp="2026-11-20T00:00:00Z",
     )
     assert_undetermined(diagnose(deleting, fixture), "second old RS still has a terminating Pod")
+
+    quota_cases = [
+        ((4, 4), "rollout_blocked", "4（slots、guard-slots）"),
+        ((5, 4), "rollout_blocked", "4（guard-slots）"),
+        ((4, 5), "rollout_blocked", "4（slots）"),
+        ((5, 5), "rollout_reachable", "5（slots、guard-slots）"),
+    ]
+    for (first, second), expected, limiting in quota_cases:
+        paired = deepcopy(base)
+        original = paired["quotas"][0]
+        guard_quota = deepcopy(original)
+        guard_quota["metadata"].update(name="guard-slots", uid="guard-slots")
+        for quota, limit in ((original, first), (guard_quota, second)):
+            quota["spec"]["hard"]["pods"] = str(limit)
+            quota["status"]["hard"]["pods"] = str(limit)
+        paired["quotas"].append(guard_quota)
+        projected, = projections(diagnose(paired, fixture))
+        assert projected["rule_id"] == expected, projected
+        assert f"生效 pods 配额上限 {limiting}" in projected["evidence"], projected
+        assert {ref["object_name"] for ref in projected["evidence_refs"]
+                if ref["resource_kind"] == "ResourceQuota"} == {"slots", "guard-slots"}
+        if expected == "rollout_reachable":
+            assert any(step.startswith("create_new_pod") for step in projected["evidence"])
+
+    quota_mutations = [
+        (("quotas", 1, "status", "used", "pods"), "3"),
+        (("quotas", 1, "spec", "hard", "pods"), "6"),
+        (("quotas", 1, "spec", "scopes"), ["BestEffort"]),
+        (("quotas", 1, "metadata", "name"), "slots"),
+        (("quotas", 1, "metadata", "namespace"), "other"),
+        (("quotas", 1), {
+            **guard_quota,
+            "spec": {"hard": {"pods": "5", "requests.cpu": "2"}},
+            "status": {"hard": {"pods": "5", "requests.cpu": "2"},
+                       "used": {"pods": "4", "requests.cpu": "1"}},
+        }),
+    ]
+    for path, value in quota_mutations:
+        assert_undetermined(diagnose(with_value(paired, path, value), fixture), path)
 print(f"{len(mutations)} invalid/unsupported inputs and {len(percentage_cases)} percentage policies passed")
 print(f"{len(history_mutations) + 5} historical ReplicaSet cases passed")
+print(f"{len(quota_cases) + len(quota_mutations)} overlapping pods quota cases passed")

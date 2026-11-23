@@ -112,6 +112,56 @@ fn rollout_ref(
 }
 
 ///|
+fn rollout_quota_bounds(
+  quotas : Array[Json],
+  ns : String,
+  total : Int32,
+) -> Result[(Int32, Array[String], Array[@rules.Evidence]), String] {
+  guard !quotas.is_empty() else { return Err("需要无作用域 pods 配额") }
+  let names : Map[String, Bool] = Map([])
+  let refs : Array[@rules.Evidence] = []
+  let mut limiting : Array[String] = []
+  let mut smallest = 100000000
+  for quota in quotas {
+    let meta = field(quota, "metadata")
+    let spec = field(quota, "spec")
+    let status = field(quota, "status")
+    let hard = field(status, "hard")
+    guard field(meta, "name") is String(name) &&
+      !name.is_empty() &&
+      !names.contains(name) &&
+      field(meta, "namespace") == Json::string(ns) &&
+      field(meta, "deletionTimestamp") == Json::null() else {
+      return Err("配额名称、命名空间或状态不完整")
+    }
+    guard field(spec, "scopes") == Json::null() &&
+      field(spec, "scopeSelector") == Json::null() &&
+      hard is Object(resources) &&
+      resources.length() == 1 &&
+      field(spec, "hard") == hard else {
+      return Err("配额 \{name} 存在其他约束或状态尚未同步")
+    }
+    let limit = quota_count(field(hard, "pods"))
+    let used = quota_count(field(field(status, "used"), "pods"))
+    guard used == total && limit >= total else {
+      return Err(
+        "配额 \{name} 的 pods 计数无法与当前 Pod 列表核对",
+      )
+    }
+    names[name] = true
+    refs.push(rollout_ref("ResourceQuota", name, "status", status))
+    if limit < smallest {
+      smallest = limit
+      limiting = []
+    }
+    if limit == smallest {
+      limiting.push(name)
+    }
+  }
+  Ok((smallest, limiting, refs))
+}
+
+///|
 fn rollout_finding(
   s : @snapshot.ClusterSnapshot,
   dep : Json,
@@ -190,26 +240,6 @@ fn rollout_finding(
     return Err("无法唯一识别新旧模板")
   }
   let (new_uid, new_rs) = current[0]
-  guard s.quotas.length() == 1 else {
-    return Err("仅支持单个无作用域 pods 配额")
-  }
-  let quota = s.quotas[0]
-  let qspec = field(quota, "spec")
-  let qs = field(quota, "status")
-  let qhard = field(qs, "hard")
-  guard field(field(quota, "metadata"), "namespace") == Json::string(s.ns) &&
-    field(qspec, "scopes") == Json::null() &&
-    field(qspec, "scopeSelector") == Json::null() &&
-    qhard is Object(h) &&
-    h.length() == 1 &&
-    field(qspec, "hard") == qhard else {
-    return Err("配额存在其他约束或状态尚未同步")
-  }
-  let hard = quota_count(field(qhard, "pods"))
-  let used = quota_count(field(field(qs, "used"), "pods"))
-  guard hard >= 0 && used >= 0 && used <= hard else {
-    return Err("无法核实 pods 配额")
-  }
   let active_pods : Map[String, Int32] = Map([])
   let retiring_pods : Map[String, Int32] = Map([])
   let mut other_retiring = 0
@@ -247,6 +277,11 @@ fn rollout_finding(
       )
     }
   }
+  let (hard, limiting, quota_refs) = match
+    rollout_quota_bounds(s.quotas, s.ns, total) {
+    Ok(bounds) => bounds
+    Err(reason) => return Err(reason)
+  }
   guard !retiring_pods.contains(new_uid) else {
     return Err("新版 Pod 正在删除")
   }
@@ -270,8 +305,7 @@ fn rollout_finding(
   let retiring = retiring_pods.get(old_uid).unwrap_or(0)
   let desired = count(field(field(new_rs, "spec"), "replicas"))
   let available = status_count(new_rs, "availableReplicas")
-  guard used == total &&
-    old <= replicas &&
+  guard old <= replicas &&
     old == count(field(field(old_rs, "spec"), "replicas")) &&
     old == status_count(old_rs, "availableReplicas") &&
     old == status_count(old_rs, "replicas") &&
@@ -288,7 +322,7 @@ fn rollout_finding(
     surge,
     unavailable: minimum(unavailable, replicas),
     hard,
-    fixed_other: used - old - live - retiring - other_retiring,
+    fixed_other: total - old - live - retiring - other_retiring,
   }
   let initial = { old, desired, live, available, retiring, other_retiring, }
   let assumption = "假定其他常驻负载不变，控制器能重试创建，新 Pod 能变为可用，缩容后的旧 Pod 能释放配额。"
@@ -338,17 +372,21 @@ fn rollout_finding(
         )
       }
   }
-  guard field(field(quota, "metadata"), "name") is String(qname) &&
-    field(field(new_rs, "metadata"), "name") is String(new_name) &&
+  guard field(field(new_rs, "metadata"), "name") is String(new_name) &&
     field(field(old_rs, "metadata"), "name") is String(old_name) else {
     return Err("缺少证据对象名称")
   }
   let evidence = [
-    "旧版可用 \{old}，新版期望/实际/可用 \{desired}/\{live}/\{available}，配额 \{used}/\{hard}，其他终止 Pod \{other_retiring}",
+    "旧版可用 \{old}，新版期望/实际/可用 \{desired}/\{live}/\{available}，配额 \{total}/\{hard}，其他终止 Pod \{other_retiring}",
     "生效策略 maxSurge=\{policy.surge}，maxUnavailable=\{policy.unavailable}，最低可用 \{replicas-policy.unavailable}",
   ]
   if path.length() > 0 {
     evidence.push(path.join(" → "))
+  }
+  if quota_refs.length() > 1 {
+    evidence.push(
+      "生效 pods 配额上限 \{hard}（\{limiting.join("、")}）",
+    )
   }
   for entry in previous {
     let (uid, rs) = entry
@@ -402,8 +440,8 @@ fn rollout_finding(
         "spec.replicas",
         field(field(new_rs, "spec"), "replicas"),
       ),
-      rollout_ref("ResourceQuota", qname, "status", qs),
     ] +
+    quota_refs +
     additional_refs,
   })
 }
