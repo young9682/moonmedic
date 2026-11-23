@@ -1,77 +1,40 @@
-# moonmedic 3 分钟演示脚本(Day 7)
+# moonmedic 三分钟演示
 
-> 演示原则:每一步都是**可重复的真实命令**,不是 PPT 截图。
-> 前置:moon 工具链 + kubectl(指向演示集群);LLM 叙述层可选。
+提前在仓库根目录运行 `moon update` 准备依赖。下面的命令读取仓库快照，可在没有 Kubernetes 集群和 LLM 端点的环境演示。
 
-## 00:00–00:30 项目介绍(口播)
-
-“Deployment 发布后没有生成预期 Pod 时，可以沿 Deployment、ReplicaSet、事件和 ResourceQuota 查找证据。moonmedic 用 MoonBit 关联这些对象，把创建失败、可识别的拒绝和缺失副本写进报告。每条证据保留对象与字段，快照可以离线回放。”
-
-## 00:30–01:00 故障注入(真实集群,隔离 namespace)
+## 00:00–00:45 三个旧副本正常，新版为什么一直是零
 
 ```bash
-eval/scripts/inject.sh e01-quota-zero-pods
-# ResourceQuota hard pods=0 + Deployment 期望 2 副本
-# 等待 FailedCreate 事件就绪(脚本自动等待)
+moon run cmd/main -- --snapshot eval/fixtures/rollout-a-full.snapshot.json
 ```
 
-亮点:namespace 完全隔离(`moonmedic-eval-*`),不碰集群任何现有资源。
+快照中目标是 3 个副本，旧版 3 个可用，另一个 Pod 占了第 4 个名额。新版期望有 1 个副本，实际为 0。配额 4/4 且 `maxUnavailable=0` 时，创建和先退旧都受约束。报告会判定受阻，并给出两条可行路径分别需要的配额和可用性条件。
 
-## 01:00–01:50 运行 moonmedic(证据链展示)
+## 00:45–01:45 同一初态的两种做法
 
 ```bash
-eval/scripts/capture-snapshot.sh e01-quota-zero-pods payments-api eval/fixtures/e01.snapshot.json
-moon run cmd/main -- --snapshot eval/fixtures/e01.snapshot.json
+moon run cmd/main -- --snapshot eval/fixtures/rollout-c-retire-first.snapshot.json
+moon run cmd/main -- --snapshot eval/fixtures/rollout-d-extra-slot.snapshot.json
 ```
 
-终端展示报告的因果链(逐条念):
-
-```text
-根因:创建 Pod 请求超过 ResourceQuota(layer: root_cause,权重 0.98)
-  ⌗ ResourceQuota/zero-pods · status.used.pods = 0
-  ⌗ ResourceQuota/zero-pods · status.hard.pods = 0
-  ⌗ Event/ReplicaSet/payments-api-... · FailedCreate ×N:
-      pods is forbidden: exceeded quota: zero-pods...
-机制:ReplicaSet 创建 Pod 失败(FailedCreate)
-现象:工作负载没有任何 Pod(期望 2,归属 Pod 数 0)
-建议:按快照用量估算，配额还差 2 个，需 hard ≥2
-```
-
-强调:**每条结论后面的 ⌗ 行就是结构化证据引用**(对象 + 字段路径 + 观测值),JSON 输出可被 CI 直接断言。
-
-## 01:50–02:30 离线回放(证明可复现)
-
-```bash
-eval/scripts/cleanup.sh    # 删掉评测 namespace——从此不再需要集群
-bash eval/scripts/run-all.sh  # 9 个离线快照及断言
-# 输出 pass=9 fail=0
-```
-
-口播:"快照刚才是从真实 RKE2 集群采集的;现在集群没了,诊断结果**一字不差**——同一份输入永远产出同一份诊断,这就是确定性引擎的含义。"
-
-## 02:30–03:00 架构说明(口播 + 架构图)
-
-“诊断核心用 MoonBit 实现。snapshot 负责解码，core 输出分层诊断，report 渲染结果。CI 检查核心包的依赖边界。报告可以选择启用模型归纳。”
-
-## 备选:运行时路径(如果时间允许 / 评委追问)
-
-```bash
-moon run cmd/main -- prod <pod-name> --json
-```
-
-展示 OOMKilled / CrashLoopBackOff 等运行时规则与真 LLM 叙述层(DeepSeek 实测记录见 docs/E2E-REAL-LLM.md)。
-
----
-
-## 评委问题准备
-
-| 可能问题 | 回答与证据 |
+| 相对第一份快照只改一项 | 模型给出的动作 |
 |---|---|
-| 为什么不是普通 Agent 的封装? | 关掉 LLM 核心照常诊断(演示第二步就是无 LLM 运行);CI 强制 core/rules/snapshot 不依赖 LLM 与 kubemoon |
-| 为什么用 MoonBit? | 用类型建模快照完整性、准入错误与字段证据，诊断核心可离线测试及复用 |
-| 怎么证明不是关键词匹配? | UID 对象图归属隔离(e04:外来 2 个健康 Pod 不污染目标计数)、Quantity 数值差额计算、负向测试(forbidden/纯 FailedCreate 不触发配额根因) |
-| 没有 Pod 怎么诊断? | E01 真实集群注入:配额=0 → FailedCreate 事件 + status.used/hard → 因果链 |
-| 如何避免误报? | e03:LimitRange 拒绝命中 limitrange_reject 的同时 quota_exceeded 正确缺席;裸 forbidden 不再佐证配额(Day-1 收窄) |
-| LLM 幻觉怎么办? | LLM 不产生根因只做叙述;e05:Pods 源不可用时输出 insufficient_evidence 而非猜测 |
-| 如何证明可复现? | 4 份真实采集快照、1 份派生缺证据快照和 4 份误报回归。CI 校验 9 个场景。 |
-| 证据怎么防伪造? | evidence_refs 绑定 API 对象与字段路径,报告 JSON 可被 CI 直接断言(eval/scripts/assert.py) |
+| C · `maxUnavailable` 从 0 改为 1，配额保持 4/4 | 先退一个旧副本，等名额释放后再建新版。最低可用数从 3 降到 2。 |
+| D · 配额上限从 4 改为 5，策略保持不变 | 先建一个新版，待它可用再退旧。最低可用数仍为 3。 |
+
+三份快照都没有拒绝消息。MoonBit 核心根据副本、配额和发布策略搜索动作顺序，报告可核对原始对象字段。
+
+## 01:45–02:30 展示自动断言
+
+```bash
+bash eval/scripts/run-all.sh rollout-a-full rollout-c-retire-first rollout-d-extra-slot
+# pass=3 fail=0
+```
+
+断言校验诊断层级、关键证据和可行方案的动作顺序。演示运行的三个场景也在完整的 15 例离线回放和 CI 中执行。[验收命令](ACCEPTANCE.md#从全新检出验证)
+
+## 02:30–03:00 说明实测结果
+
+三副本的配额放宽试验在 kind 集群中达到 3/3。固定配额的单副本试验仅放宽 `maxUnavailable` 后达到 1/1。早期三副本固定配额试验在 540 秒时观测到 2/3，因此这里把案例 C 的完整路径作为模型结果展示。[集群验证与观测记录](ACCEPTANCE.md#真实集群验证)
+
+作者：young86

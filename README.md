@@ -2,7 +2,7 @@
 
 > MoonBit 写的 Kubernetes 故障证据引擎 —— 给集群请一位会取证的医生。
 
-**2026 MoonBit 黑客松 · 十一月赛参赛项目** · [申报书](docs/项目申报书.md) · [验收与复现](docs/ACCEPTANCE.md)
+**2026 MoonBit 黑客松 · 十一月赛参赛项目** · [申报书](docs/项目申报书.md) · [验收与复现](docs/ACCEPTANCE.md) · [三分钟演示](docs/DEMO.md)
 
 [![ci](https://github.com/young9682/moonmedic/actions/workflows/ci.yml/badge.svg)](https://github.com/young9682/moonmedic/actions/workflows/ci.yml)
 
@@ -81,7 +81,7 @@ ClusterSnapshot →│ core(确定性证据引擎)       │→ Diagnosis
 - [x] 镜像拉取失败 —— 镜像名/tag 无法解析(`image_pull_tag`)与凭据/Secret 问题
   (`image_pull_secret`)
 - [x] 探针失败 —— kubelet Unhealthy / probe failed 事件(`probe_fail`)
-- [ ] kind 故障注入评测集与基准(Phase B)
+- [x] kind 滚动发布实测与外部工具同输入对照。[场景](eval/README.md) · [基线](eval/BASELINES.md)
 
 ## 路线图
 
@@ -93,6 +93,7 @@ ClusterSnapshot →│ core(确定性证据引擎)       │→ Diagnosis
 | W4 | Agent 工具循环 + CI + 文档打磨 | ✅ |
 | Phase A | 快照 IR、对象图、配额数值重建 + LimitRange 识别、`--deployment`、`--json` | ✅ |
 | Phase B | RKE2 采集 E01–E04、缺证据派生 E05、反例 R01–R05 离线回放 | ✅ |
+| 滚动发布 | 可达性搜索、最低配额与最低 `maxUnavailable`、kind 实测 | ✅ |
 | Phase C | StatefulSet/DaemonSet、节点容量、上一容器日志、日志签名 | 可选 |
 
 ## 开发
