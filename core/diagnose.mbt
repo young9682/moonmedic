@@ -90,7 +90,7 @@ fn diagnose_workload(
   let findings = @rules.run_all_workload(facts)
   let notes = clone_notes(snapshot.notes)
   if scoped_by_uid &&
-    scoped_replicasets.length() == 2 &&
+    scoped_replicasets.length() >= 2 &&
     snapshot.deployment is Some(dep) {
     match rollout_finding(snapshot, dep, scoped_replicasets) {
       Ok(finding) => findings.push(finding)

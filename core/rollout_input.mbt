@@ -41,15 +41,29 @@ fn template(raw : Json) -> Json? {
 }
 
 ///|
-fn controlled(raw : Json, kind : String, uid : String) -> Bool {
+fn controller_uid(raw : Json, kind : String) -> String? {
   guard field(field(raw, "metadata"), "ownerReferences") is Array(refs) else {
-    return false
+    return None
   }
-  refs.any(fn(r) {
-    field(r, "kind") == Json::string(kind) &&
-    field(r, "uid") == Json::string(uid) &&
-    field(r, "controller") == Json::boolean(true)
-  })
+  for r in refs {
+    if field(r, "kind") == Json::string(kind) &&
+      field(r, "controller") == Json::boolean(true) &&
+      field(r, "uid") is String(uid) &&
+      !uid.is_empty() {
+      return Some(uid)
+    }
+  }
+  None
+}
+
+///|
+fn has_zero_replicas(rs : Json) -> Bool {
+  count(field(field(rs, "spec"), "replicas")) == 0 &&
+  count(field(field(rs, "status"), "replicas")) == 0 &&
+  status_count(rs, "availableReplicas") == 0 &&
+  status_count(rs, "readyReplicas") == 0 &&
+  status_count(rs, "fullyLabeledReplicas") == 0 &&
+  status_count(rs, "terminatingReplicas") == 0
 }
 
 ///|
@@ -149,25 +163,33 @@ fn rollout_finding(
     field(field(dep, "metadata"), "name") == Json::string(s.target_name) else {
     return Err("缺少模板或 Deployment UID")
   }
-  let current = sets.filter(fn(rs) { template(rs) == Some(target) })
-  let previous = sets.filter(fn(rs) { template(rs) is Some(t) && t != target })
-  guard current.length() == 1 && previous.length() == 1 else {
+  let owned : Map[String, Bool] = Map([])
+  let current : Array[(String, Json)] = []
+  let previous : Array[(String, Json)] = []
+  for rs in sets {
+    let meta = field(rs, "metadata")
+    guard controller_uid(rs, "Deployment") == Some(dep_uid) &&
+      field(meta, "namespace") == Json::string(s.ns) &&
+      field(meta, "deletionTimestamp") == Json::null() &&
+      @rules.object_uid(rs) is Some(uid) &&
+      !uid.is_empty() &&
+      !owned.contains(uid) else {
+      return Err("RS 归属不完整")
+    }
+    guard template(rs) is Some(rs_template) else {
+      return Err("无法唯一识别新旧模板")
+    }
+    owned[uid] = true
+    if rs_template == target {
+      current.push((uid, rs))
+    } else {
+      previous.push((uid, rs))
+    }
+  }
+  guard current.length() == 1 && previous.length() > 0 else {
     return Err("无法唯一识别新旧模板")
   }
-  let new_rs = current[0]
-  let old_rs = previous[0]
-  guard sets.all(fn(rs) {
-      controlled(rs, "Deployment", dep_uid) &&
-      field(field(rs, "metadata"), "namespace") == Json::string(s.ns) &&
-      field(field(rs, "metadata"), "deletionTimestamp") == Json::null()
-    }) &&
-    @rules.object_uid(old_rs) is Some(old_uid) &&
-    @rules.object_uid(new_rs) is Some(new_uid) &&
-    old_uid != new_uid &&
-    !old_uid.is_empty() &&
-    !new_uid.is_empty() else {
-    return Err("RS 归属不完整")
-  }
+  let (new_uid, new_rs) = current[0]
   guard s.quotas.length() == 1 else {
     return Err("仅支持单个无作用域 pods 配额")
   }
@@ -188,12 +210,11 @@ fn rollout_finding(
   guard hard >= 0 && used >= 0 && used <= hard else {
     return Err("无法核实 pods 配额")
   }
-  let mut old = 0
-  let mut live = 0
-  let mut retiring = 0
+  let active_pods : Map[String, Int32] = Map([])
+  let retiring_pods : Map[String, Int32] = Map([])
   let mut other_retiring = 0
   let mut total = 0
-  let releases : Array[@rules.Evidence] = []
+  let additional_refs : Array[@rules.Evidence] = []
   for pod in s.pods {
     let meta = field(pod, "metadata")
     guard field(meta, "namespace") == Json::string(s.ns) &&
@@ -205,23 +226,18 @@ fn rollout_finding(
     }
     total = total + 1
     let deleting = field(meta, "deletionTimestamp") is String(_)
-    if controlled(pod, "ReplicaSet", old_uid) {
+    if controller_uid(pod, "ReplicaSet") is Some(uid) && owned.contains(uid) {
       if deleting {
-        retiring = retiring + 1
+        retiring_pods[uid] = retiring_pods.get(uid).unwrap_or(0) + 1
       } else {
-        old = old + 1
+        active_pods[uid] = active_pods.get(uid).unwrap_or(0) + 1
       }
-    } else if controlled(pod, "ReplicaSet", new_uid) {
-      if deleting {
-        return Err("新版 Pod 正在删除")
-      }
-      live = live + 1
     } else if deleting {
       other_retiring = other_retiring + 1
       guard field(meta, "name") is String(name) else {
         return Err("缺少终止 Pod 名称")
       }
-      releases.push(
+      additional_refs.push(
         rollout_ref(
           "Pod",
           name,
@@ -231,6 +247,27 @@ fn rollout_finding(
       )
     }
   }
+  guard !retiring_pods.contains(new_uid) else {
+    return Err("新版 Pod 正在删除")
+  }
+  let remaining = previous.filter(fn(entry) {
+    let (uid, rs) = entry
+    active_pods.contains(uid) ||
+    retiring_pods.contains(uid) ||
+    !has_zero_replicas(rs)
+  })
+  guard remaining.length() <= 1 else {
+    return Err("存在多个尚未清空或状态未确认的旧版 RS")
+  }
+  // A fully retired revision can anchor the zero-old state after completion.
+  let (old_uid, old_rs) = if remaining.is_empty() {
+    previous[0]
+  } else {
+    remaining[0]
+  }
+  let old = active_pods.get(old_uid).unwrap_or(0)
+  let live = active_pods.get(new_uid).unwrap_or(0)
+  let retiring = retiring_pods.get(old_uid).unwrap_or(0)
   let desired = count(field(field(new_rs, "spec"), "replicas"))
   let available = status_count(new_rs, "availableReplicas")
   guard used == total &&
@@ -313,6 +350,27 @@ fn rollout_finding(
   if path.length() > 0 {
     evidence.push(path.join(" → "))
   }
+  for entry in previous {
+    let (uid, rs) = entry
+    if uid != old_uid {
+      guard field(field(rs, "metadata"), "name") is String(name) &&
+        !name.is_empty() else {
+        return Err("缺少历史 RS 名称")
+      }
+      evidence.push("历史 RS \{name} 已清空，未拥有非终态 Pod")
+      additional_refs.push(
+        rollout_ref(
+          "ReplicaSet",
+          name,
+          "spec.replicas",
+          field(field(rs, "spec"), "replicas"),
+        ),
+      )
+      additional_refs.push(
+        rollout_ref("ReplicaSet", name, "status", field(rs, "status")),
+      )
+    }
+  }
   Ok({
     rule_id,
     title: "滚动发布路径分析",
@@ -346,6 +404,6 @@ fn rollout_finding(
       ),
       rollout_ref("ResourceQuota", qname, "status", qs),
     ] +
-    releases,
+    additional_refs,
   })
 }

@@ -1,4 +1,4 @@
-"""Check evidence guards and percentage strategies through the snapshot CLI."""
+"""Check rollout input guards through the snapshot CLI."""
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -34,6 +34,20 @@ def diagnose(case, fixture):
     return json.loads(result.stdout)
 
 
+def projections(diagnosis):
+    return [f for f in diagnosis["findings"] if f["layer"] == "projection"]
+
+
+def assert_undetermined(diagnosis, label):
+    assert not projections(diagnosis) and any(
+        "滚动发布路径未判定" in note for note in diagnosis["notes"]
+    ), label
+
+
+def owner(name):
+    return [{"kind": "ReplicaSet", "controller": True, "name": name, "uid": name}]
+
+
 with TemporaryDirectory() as folder:
     fixture = Path(folder) / "input.json"
     for path, value in mutations:
@@ -42,11 +56,7 @@ with TemporaryDirectory() as folder:
         for key in path[:-1]:
             target = target[key]
         target[path[-1]] = value
-        diagnosis = diagnose(case, fixture)
-        if any(f["layer"] == "projection" for f in diagnosis["findings"]) or not any(
-            "滚动发布路径未判定" in note for note in diagnosis["notes"]
-        ):
-            raise AssertionError(f"inconsistent input accepted: {path}")
+        assert_undetermined(diagnose(case, fixture), path)
 
     # Three desired replicas and four occupied slots in all cases.
     percentage_cases = [
@@ -62,13 +72,77 @@ with TemporaryDirectory() as folder:
             "maxSurge": surge, "maxUnavailable": unavailable,
         }
         case["replicasets"][0]["spec"]["replicas"] = desired
-        findings = [
-            f for f in diagnose(case, fixture)["findings"] if f["layer"] == "projection"
-        ]
+        findings = projections(diagnose(case, fixture))
         assert [f["rule_id"] for f in findings] == [expected], (surge, unavailable, findings)
         effective = (f"生效策略 maxSurge={effective_surge}，maxUnavailable={effective_unavailable}，"
                      f"最低可用 {3 - effective_unavailable}")
         assert effective in findings[0]["evidence"], findings[0]
         if expected == "rollout_reachable":
             assert any(step.startswith("scale_old_rs(-1)") for step in findings[0]["evidence"])
+
+    history = deepcopy(base["replicasets"][1])
+    history["metadata"].update(name="history", uid="history")
+    history["spec"]["replicas"] = 0
+    history["spec"]["template"]["metadata"]["labels"]["version"] = "history"
+    history["status"] = {"replicas": 0}
+    historical = deepcopy(base)
+    historical["replicasets"].insert(0, history)
+    terminal = deepcopy(historical["pods"][0])
+    terminal["metadata"].update(name="finished", uid="finished", ownerReferences=owner("history"))
+    terminal["status"]["phase"] = "Succeeded"
+    historical["pods"].append(terminal)
+
+    blocked, = projections(diagnose(historical, fixture))
+    assert blocked["rule_id"] == "rollout_blocked"
+    assert any(ref["object_name"] == "history" and ref["field_path"] == "status"
+               for ref in blocked["evidence_refs"])
+
+    retire_first = deepcopy(historical)
+    retire_first["deployment"]["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] = 1
+    reachable, = projections(diagnose(retire_first, fixture))
+    assert reachable["rule_id"] == "rollout_reachable"
+    assert any(step.startswith("scale_old_rs(-1)") for step in reachable["evidence"])
+
+    released = deepcopy(historical)
+    _, new, old = released["replicasets"]
+    new["spec"]["replicas"] = 3
+    new["status"] = {"replicas": 3, "availableReplicas": 3}
+    old["spec"]["replicas"] = 0
+    old["status"] = {"replicas": 0}
+    for pod in released["pods"][:3]:
+        pod["metadata"]["ownerReferences"] = owner("new")
+    complete, = projections(diagnose(released, fixture))
+    assert "快照中已达到替换目标" in complete["detail"]
+
+    draining = deepcopy(released)
+    draining["replicasets"][1]["status"] = {"replicas": 2, "availableReplicas": 2}
+    draining["pods"][0]["metadata"].update(
+        ownerReferences=owner("old"), deletionTimestamp="2026-11-20T00:00:00Z",
+    )
+    pending, = projections(diagnose(draining, fixture))
+    assert pending["rule_id"] == "rollout_reachable"
+    assert any(step.startswith("release_old_slot → create_new_pod") for step in pending["evidence"])
+
+    history_mutations = [
+        (("replicasets", 0, "spec", "replicas"), 1),
+        (("replicasets", 0, "status"), {}),
+        (("replicasets", 0, "status", "availableReplicas"), 1),
+        (("replicasets", 0, "metadata", "uid"), "old"),
+        (("replicasets", 0, "spec", "template"), base["deployment"]["spec"]["template"]),
+        (("pods", 3, "metadata", "ownerReferences"), owner("history")),
+    ]
+    for path, value in history_mutations:
+        case = deepcopy(historical)
+        obj = case
+        for key in path[:-1]:
+            obj = obj[key]
+        obj[path[-1]] = value
+        assert_undetermined(diagnose(case, fixture), path)
+
+    deleting = deepcopy(historical)
+    deleting["pods"][3]["metadata"].update(
+        ownerReferences=owner("history"), deletionTimestamp="2026-11-20T00:00:00Z",
+    )
+    assert_undetermined(diagnose(deleting, fixture), "second old RS still has a terminating Pod")
 print(f"{len(mutations)} invalid/unsupported inputs and {len(percentage_cases)} percentage policies passed")
+print(f"{len(history_mutations) + 5} historical ReplicaSet cases passed")
