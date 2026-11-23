@@ -20,7 +20,7 @@ spec:
   replicas: 3
   strategy:
     type: RollingUpdate
-    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+    rollingUpdate: {maxSurge: "25%", maxUnavailable: "25%"}
   selector:
     matchLabels: {app: web}
   template:
@@ -55,6 +55,8 @@ trap 'kill "$proxy" "$watcher" 2>/dev/null || true' EXIT
 for _ in {1..20}; do curl -fsS http://127.0.0.1:8001/version >/dev/null && break; sleep 1; done
 MOONMEDIC_SERVER=http://127.0.0.1:8001 moon run cmd/main -- --deployment "$ns" web --json >"$out/live-diagnosis.json"
 jq -e 'any(.findings[]; .rule_id=="rollout_blocked")' "$out/live-diagnosis.json" >/dev/null
+jq -e 'any(.findings[] | select(.rule_id=="rollout_blocked") | .evidence[];
+  contains("maxSurge=1，maxUnavailable=0"))' "$out/live-diagnosis.json" >/dev/null
 # Predict the effect of the one-field change before submitting it to the controller.
 jq '.quotas[0].spec.hard.pods="5" | .quotas[0].status.hard.pods="5"' "$out/blocked.json" >"$out/counterfactual.json"
 moon run cmd/main -- --snapshot "$out/counterfactual.json" --json >"$out/recovery-prediction.json"
@@ -74,7 +76,7 @@ for _ in {1..30}; do
 done
 jq -e '.deployment.status.updatedReplicas==3 and .deployment.status.availableReplicas==3
  and (.quotas[0].status.hard.pods=="5" and .quotas[0].status.used.pods=="4")
- and .deployment.spec.strategy.rollingUpdate.maxUnavailable==0
+ and .deployment.spec.strategy.rollingUpdate=={maxSurge:"25%", maxUnavailable:"25%"}
  and (.pods|length)==4 and all(.pods[]; .metadata.deletionTimestamp==null)
  and any(.replicasets[]; .spec.template.metadata.annotations["test-revision"]=="new" and .status.availableReplicas==3)
  and all(.replicasets[] | select(.spec.template.metadata.annotations["test-revision"]!="new"); .spec.replicas==0)' "$out/recovered.json" >/dev/null
