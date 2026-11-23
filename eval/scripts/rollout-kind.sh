@@ -10,7 +10,6 @@ k=(kubectl -n "$ns")
 image=$(docker exec moonmedic-rollout-control-plane crictl images -o json |
   jq -er '[.images[].repoTags[]? | select(test("/pause:[0-9]"))][0]')
 "${k[@]}" create quota slots --hard=pods=4
-"${k[@]}" run other --image="$image" --image-pull-policy=IfNotPresent --restart=Never
 cat <<YAML | "${k[@]}" create -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -33,8 +32,13 @@ spec:
         image: $image
         imagePullPolicy: IfNotPresent
 YAML
-"${k[@]}" wait --for=condition=Ready pod/other --timeout=180s
 "${k[@]}" rollout status deployment/web --timeout=180s
+# Complete one rollout with a free slot to leave a real, scaled-to-zero revision.
+"${k[@]}" patch deployment web -p '{"spec":{"template":{"metadata":{"annotations":{"test-revision":"previous"}}}}}'
+"${k[@]}" rollout status deployment/web --timeout=180s
+"${k[@]}" wait --for=jsonpath='{.status.used.pods}'=3 quota/slots --timeout=90s
+"${k[@]}" run other --image="$image" --image-pull-policy=IfNotPresent --restart=Never
+"${k[@]}" wait --for=condition=Ready pod/other --timeout=180s
 capture() {
   bash eval/scripts/capture-snapshot.sh rollout web "$out/$1.json"
 }
@@ -47,6 +51,9 @@ for _ in {1..60}; do
 done
 capture blocked
 jq -e 'any(.replicasets[].status.conditions[]?; .reason=="FailedCreate" and (.message|contains("exceeded quota")))' "$out/blocked.json" >/dev/null
+history=$(jq -er 'select((.replicasets | length)==3) | .replicasets[]
+  | select(.spec.template.metadata.annotations["test-revision"]==null
+    and .spec.replicas==0 and .status.replicas==0) | .metadata.name' "$out/blocked.json")
 "${k[@]}" get rs --watch -o custom-columns='NAME:.metadata.name,VERSION:.metadata.resourceVersion,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas' >"$out/rs-transitions.txt" &
 watcher=$!
 kubectl proxy --address=127.0.0.1 --port=8001 >"$out/proxy.log" 2>&1 &
@@ -57,6 +64,8 @@ MOONMEDIC_SERVER=http://127.0.0.1:8001 moon run cmd/main -- --deployment "$ns" w
 jq -e 'any(.findings[]; .rule_id=="rollout_blocked")' "$out/live-diagnosis.json" >/dev/null
 jq -e 'any(.findings[] | select(.rule_id=="rollout_blocked") | .evidence[];
   contains("maxSurge=1，maxUnavailable=0"))' "$out/live-diagnosis.json" >/dev/null
+jq -e --arg history "$history" 'any(.findings[] | select(.rule_id=="rollout_blocked") | .evidence_refs[];
+  .resource_kind=="ReplicaSet" and .object_name==$history and .field_path=="status")' "$out/live-diagnosis.json" >/dev/null
 # Predict the effect of the one-field change before submitting it to the controller.
 jq '.quotas[0].spec.hard.pods="5" | .quotas[0].status.hard.pods="5"' "$out/blocked.json" >"$out/counterfactual.json"
 moon run cmd/main -- --snapshot "$out/counterfactual.json" --json >"$out/recovery-prediction.json"
