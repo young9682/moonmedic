@@ -70,6 +70,8 @@ jq -e --arg history "$history" 'any(.findings[] | select(.rule_id=="rollout_bloc
   .resource_kind=="ReplicaSet" and .object_name==$history and .field_path=="status")' "$out/live-diagnosis.json" >/dev/null
 jq -e 'any(.findings[] | select(.rule_id=="rollout_blocked") | .evidence[];
   .=="生效 pods 配额上限 4（guard-slots、slots）" or .=="生效 pods 配额上限 4（slots、guard-slots）")' "$out/live-diagnosis.json" >/dev/null
+jq -e 'any(.findings[] | select(.rule_id=="rollout_blocked") | .evidence[];
+  contains("生效 pods 配额至少为 5") and contains("增加 1 个名额"))' "$out/live-diagnosis.json" >/dev/null
 # Predict the effect of relaxing one quota and then both quotas.
 jq '(.quotas[] | select(.metadata.name=="slots") | .spec.hard.pods, .status.hard.pods)="5"' "$out/blocked.json" >"$out/one-raised-counterfactual.json"
 moon run cmd/main -- --snapshot "$out/one-raised-counterfactual.json" --json >"$out/one-raised-prediction.json"
