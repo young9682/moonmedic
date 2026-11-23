@@ -44,13 +44,19 @@ YAML
 capture() {
   bash eval/scripts/capture-snapshot.sh rollout web "$out/$1.json"
 }
+wait_for_quota_denial() {
+  for _ in {1..60}; do
+    if "${k[@]}" get rs -l "app=$1" -o json | jq -e 'any(.items[].status.conditions[]?;
+      .reason=="FailedCreate" and (.message|contains("exceeded quota")))' >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
 capture before
 "${k[@]}" patch deployment web -p '{"spec":{"template":{"metadata":{"annotations":{"test-revision":"new"}}}}}'
-for _ in {1..60}; do
-  if "${k[@]}" get rs -o json | jq -e 'any(.items[].status.conditions[]?;
-      .reason == "FailedCreate" and (.message | contains("exceeded quota"))) ' >/dev/null; then break; fi
-  sleep 2
-done
+wait_for_quota_denial web || { capture quota-denial-timeout; exit 1; }
 capture blocked
 jq -e 'any(.replicasets[].status.conditions[]?; .reason=="FailedCreate" and (.message|contains("exceeded quota")))' "$out/blocked.json" >/dev/null
 history=$(jq -er 'select((.replicasets | length)==3) | .replicasets[]
@@ -117,3 +123,32 @@ jq -e 'any(.findings[]; .rule_id=="rollout_reachable" and (.detail|contains("已
 for phase in before blocked one-raised recovered; do
   jq -c --arg phase "$phase" '{phase:$phase,quotas:[.quotas[]|{name:.metadata.name,status}],rs:[.replicasets[]|{name:.metadata.name,desired:.spec.replicas,available:(.status.availableReplicas//0)}]}' "$out/$phase.json"
 done
+
+# Fill the last slot with a separate Deployment, then recover it using only
+# a policy change. At one replica, allowing one unavailable can take it to zero.
+"${k[@]}" create deployment fixed-quota --image="$image" --replicas=1
+"${k[@]}" rollout status deployment/fixed-quota --timeout=180s
+"${k[@]}" patch deployment fixed-quota -p '{"spec":{"template":{"metadata":{"annotations":{"test-revision":"next"}}}}}'
+wait_for_quota_denial fixed-quota || {
+  bash eval/scripts/capture-snapshot.sh rollout fixed-quota "$out/fixed-quota-denial-timeout.json"
+  exit 1
+}
+bash eval/scripts/capture-snapshot.sh rollout fixed-quota "$out/fixed-quota-blocked.json"
+moon run cmd/main -- --snapshot "$out/fixed-quota-blocked.json" --json >"$out/fixed-quota-plan.json"
+jq -e 'any(.findings[]; .rule_id=="rollout_blocked"
+  and any(.evidence[]; contains("maxUnavailable 至少为 1，最低可用副本数从 1 降到 0"))
+  and any(.evidence[]; startswith("放宽 maxUnavailable 后的路径 scale_old_rs(-1)")))' "$out/fixed-quota-plan.json" >/dev/null
+"${k[@]}" patch deployment fixed-quota -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1}}}}'
+if ! "${k[@]}" rollout status deployment/fixed-quota --timeout=240s; then
+  bash eval/scripts/capture-snapshot.sh rollout fixed-quota "$out/fixed-quota-recovery-timeout.json"
+  exit 1
+fi
+bash eval/scripts/capture-snapshot.sh rollout fixed-quota "$out/fixed-quota-recovered.json"
+jq -e '.deployment.metadata.uid as $uid
+ | [.replicasets[] | select(any(.metadata.ownerReferences[]?; .uid==$uid))] as $owned
+ | .deployment.status.updatedReplicas==1 and .deployment.status.availableReplicas==1
+   and .deployment.spec.strategy.rollingUpdate=={maxSurge:"25%", maxUnavailable:1}
+   and (.quotas|length)==2 and all(.quotas[]; .spec.hard.pods=="5" and .status.hard.pods=="5")
+   and ($owned|length)==2
+   and any($owned[]; .spec.template.metadata.annotations["test-revision"]=="next" and .status.availableReplicas==1)
+   and any($owned[]; .spec.template.metadata.annotations["test-revision"]!="next" and .spec.replicas==0)' "$out/fixed-quota-recovered.json" >/dev/null
