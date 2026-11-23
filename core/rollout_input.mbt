@@ -64,6 +64,22 @@ fn quota_count(raw : Json) -> Int32 {
 }
 
 ///|
+/// Keep budgets in hundredths of a replica until both values are validated.
+fn rollout_scaled_budget(
+  raw : Json,
+  replicas : Int32,
+  percent_limit : Int64,
+) -> Int64 {
+  guard raw is String(text) else { return count(raw).to_int64() * 100L }
+  guard text.has_suffix("%") && text.length() > 1 else { return -1L }
+  let digits = text[:text.length() - 1]
+  guard digits.iter().all(fn(c) { c >= '0' && c <= '9' }) else { return -1L }
+  let percent = @string.parse_int64(digits, base=10) catch { _ => return -1L }
+  guard percent <= percent_limit else { return -1L }
+  percent * replicas.to_int64()
+}
+
+///|
 fn rollout_ref(
   kind : String,
   name : String,
@@ -101,14 +117,31 @@ fn rollout_finding(
   }
   let ru = field(strategy, "rollingUpdate")
   let replicas = count(field(spec, "replicas"))
-  let surge = count(field(ru, "maxSurge"))
-  let unavailable = count(field(ru, "maxUnavailable"))
-  guard replicas > 0 &&
-    surge >= 0 &&
-    unavailable >= 0 &&
-    surge + unavailable > 0 else {
-    return Err("需要正副本数与整数策略参数")
+  guard replicas > 0 else { return Err("需要正副本数") }
+  // Only maxUnavailable is restricted to 100% by Kubernetes. The larger
+  // maxSurge bound keeps the scaled product within Int64 and the model range.
+  let max_budget = 10000000000L
+  let surge_scaled = rollout_scaled_budget(
+    field(ru, "maxSurge"),
+    replicas,
+    max_budget,
+  )
+  let unavailable_scaled = rollout_scaled_budget(
+    field(ru, "maxUnavailable"),
+    replicas,
+    100L,
+  )
+  guard surge_scaled >= 0 &&
+    surge_scaled <= max_budget &&
+    unavailable_scaled >= 0 &&
+    (surge_scaled > 0 || unavailable_scaled > 0) else {
+    return Err("需要有效的整数或百分比发布参数")
   }
+  let surge = ((surge_scaled + 99L) / 100L).to_int()
+  let unavailable = (unavailable_scaled / 100L).to_int()
+  // ResolveFenceposts allows one unavailable replica when rounding would
+  // otherwise leave a valid strategy with no room to move.
+  let unavailable = if surge == 0 && unavailable == 0 { 1 } else { unavailable }
   guard template(dep) is Some(target) &&
     @rules.object_uid(dep) is Some(dep_uid) &&
     !dep_uid.is_empty() &&
@@ -275,6 +308,7 @@ fn rollout_finding(
   }
   let evidence = [
     "旧版可用 \{old}，新版期望/实际/可用 \{desired}/\{live}/\{available}，配额 \{used}/\{hard}，其他终止 Pod \{other_retiring}",
+    "生效策略 maxSurge=\{policy.surge}，maxUnavailable=\{policy.unavailable}，最低可用 \{replicas-policy.unavailable}",
   ]
   if path.length() > 0 {
     evidence.push(path.join(" → "))
