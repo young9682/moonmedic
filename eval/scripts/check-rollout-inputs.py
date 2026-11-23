@@ -168,6 +168,11 @@ with TemporaryDirectory() as folder:
                 if ref["resource_kind"] == "ResourceQuota"} == {"slots", "guard-slots"}
         if expected == "rollout_reachable":
             assert any(step.startswith("create_new_pod") for step in projected["evidence"])
+            assert not any("需调整的配额" in item for item in projected["evidence"])
+        else:
+            changes = "、".join(f"{q['metadata']['name']} 4→5" for q in paired["quotas"]
+                               if q["status"]["hard"]["pods"] == "4")
+            assert f"需调整的配额 {changes}" in projected["evidence"]
 
     quota_mutations = [
         (("quotas", 1, "status", "used", "pods"), "3"),
@@ -184,6 +189,36 @@ with TemporaryDirectory() as folder:
     ]
     for path, value in quota_mutations:
         assert_undetermined(diagnose(with_value(paired, path, value), fixture), path)
+
+    # With the old version already removed, two new Pods are still missing.
+    # All caps below 4, including the one that has headroom now, must rise.
+    partial = deepcopy(base)
+    new, old = partial["replicasets"]
+    new["spec"]["replicas"] = 3
+    new["status"] = {"replicas": 1, "availableReplicas": 1}
+    old["spec"]["replicas"] = 0
+    old["status"] = {"replicas": 0}
+    partial["pods"] = [partial["pods"][0], partial["pods"][3]]
+    partial["pods"][0]["metadata"]["ownerReferences"] = owner("new")
+    partial["quotas"] = []
+    for name, limit in (("slots", "2"), ("guard-slots", "3"), ("loose-slots", "4")):
+        quota = deepcopy(base["quotas"][0])
+        quota["metadata"].update(name=name, uid=name)
+        quota["spec"]["hard"]["pods"] = limit
+        quota["status"]["hard"]["pods"] = limit
+        quota["status"]["used"]["pods"] = "2"
+        partial["quotas"].append(quota)
+    projected, = projections(diagnose(partial, fixture))
+    assert projected["rule_id"] == "rollout_blocked"
+    assert "需调整的配额 slots 2→4、guard-slots 3→4" in projected["evidence"]
+    assert any(item.startswith("扩配额后的路径 create_new_pod") for item in projected["evidence"])
+    for cap, expected in (("3", "rollout_blocked"), ("4", "rollout_reachable")):
+        for quota in partial["quotas"][:2]:
+            quota["spec"]["hard"]["pods"] = cap
+            quota["status"]["hard"]["pods"] = cap
+        replayed, = projections(diagnose(partial, fixture))
+        assert replayed["rule_id"] == expected, replayed
 print(f"{len(mutations)} invalid/unsupported inputs and {len(percentage_cases)} percentage policies passed")
 print(f"{len(history_mutations) + 5} historical ReplicaSet cases passed")
 print(f"{len(quota_cases) + len(quota_mutations)} overlapping pods quota cases passed")
+print("Minimum quota plan and its adjacent cap replays passed")

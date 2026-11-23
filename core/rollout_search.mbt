@@ -27,6 +27,9 @@ priv enum RollResult {
 }
 
 ///|
+const ROLLOUT_COUNT_LIMIT = 100000000
+
+///|
 /// Each edge represents one controller, admission, readiness or release step.
 /// A parent link produces a shortest witness without storing a path per node.
 fn rollout_search(
@@ -100,6 +103,42 @@ fn rollout_search(
     i = i + 1
   }
   Blocked(states.length(), terminal)
+}
+
+///|
+/// Called after the current quota is proved insufficient with external use
+/// fixed. Increasing the cap only adds creation edges, so lower caps can
+/// be ruled out together. An exhausted search is not proof of infeasibility.
+fn minimum_rollout_quota(
+  policy : RollPolicy,
+  initial : RollState,
+) -> (Int32, Array[String])? {
+  let fixed = policy.fixed_other + initial.other_retiring
+  let final_occupancy = fixed + policy.replicas
+  // Every state uses at most all initially present old Pods and the target
+  // number of new Pods, even if none of the old slots have been released.
+  let mut high = minimum(
+    ROLLOUT_COUNT_LIMIT,
+    final_occupancy + initial.old + initial.retiring,
+  )
+  let mut low = if policy.hard >= final_occupancy {
+    policy.hard + 1
+  } else {
+    final_occupancy
+  }
+  let mut witness = None
+  while low <= high {
+    let cap = low + (high - low) / 2
+    match rollout_search({ ..policy, hard: cap, }, initial, false) {
+      Path(path) => {
+        witness = Some((cap, path))
+        high = cap - 1
+      }
+      Blocked(_, _) => low = cap + 1
+      SearchLimit => return None
+    }
+  }
+  witness
 }
 
 ///|

@@ -70,7 +70,7 @@ fn has_zero_replicas(rs : Json) -> Bool {
 fn quota_count(raw : Json) -> Int32 {
   guard raw is String(s) else { return -1 }
   let n = @string.parse_int(s[:]) catch { _ => return -1 }
-  if n >= 0 && n <= 100000000 && n.to_string() == s {
+  if n >= 0 && n <= ROLLOUT_COUNT_LIMIT && n.to_string() == s {
     n
   } else {
     -1
@@ -112,16 +112,21 @@ fn rollout_ref(
 }
 
 ///|
+priv struct RollQuota {
+  hard : Int32
+  evidence : @rules.Evidence
+}
+
+///|
 fn rollout_quota_bounds(
   quotas : Array[Json],
   ns : String,
   total : Int32,
-) -> Result[(Int32, Array[String], Array[@rules.Evidence]), String] {
+) -> Result[(Int32, Array[RollQuota]), String] {
   guard !quotas.is_empty() else { return Err("需要无作用域 pods 配额") }
   let names : Map[String, Bool] = Map([])
-  let refs : Array[@rules.Evidence] = []
-  let mut limiting : Array[String] = []
-  let mut smallest = 100000000
+  let bounds : Array[RollQuota] = []
+  let mut smallest = ROLLOUT_COUNT_LIMIT
   for quota in quotas {
     let meta = field(quota, "metadata")
     let spec = field(quota, "spec")
@@ -149,16 +154,13 @@ fn rollout_quota_bounds(
       )
     }
     names[name] = true
-    refs.push(rollout_ref("ResourceQuota", name, "status", status))
-    if limit < smallest {
-      smallest = limit
-      limiting = []
-    }
-    if limit == smallest {
-      limiting.push(name)
-    }
+    bounds.push({
+      hard: limit,
+      evidence: rollout_ref("ResourceQuota", name, "status", status),
+    })
+    smallest = minimum(smallest, limit)
   }
-  Ok((smallest, limiting, refs))
+  Ok((smallest, bounds))
 }
 
 ///|
@@ -277,8 +279,7 @@ fn rollout_finding(
       )
     }
   }
-  let (hard, limiting, quota_refs) = match
-    rollout_quota_bounds(s.quotas, s.ns, total) {
+  let (hard, quotas) = match rollout_quota_bounds(s.quotas, s.ns, total) {
     Ok(bounds) => bounds
     Err(reason) => return Err(reason)
   }
@@ -383,10 +384,39 @@ fn rollout_finding(
   if path.length() > 0 {
     evidence.push(path.join(" → "))
   }
-  if quota_refs.length() > 1 {
+  if quotas.length() > 1 {
+    let limiting = quotas.filter_map(fn(quota) {
+      if quota.hard == hard {
+        Some(quota.evidence.object_name)
+      } else {
+        None
+      }
+    })
     evidence.push(
       "生效 pods 配额上限 \{hard}（\{limiting.join("、")}）",
     )
+  }
+  if rule_id == "rollout_blocked" || rule_id == "rollout_release_required" {
+    match minimum_rollout_quota(policy, initial) {
+      Some((required, quota_path)) => {
+        let changes = quotas.filter_map(fn(quota) {
+          if quota.hard < required {
+            Some("\{quota.evidence.object_name} \{quota.hard}→\{required}")
+          } else {
+            None
+          }
+        })
+        evidence.push(
+          "保持发布策略与外部 Pod 占用时，生效 pods 配额至少为 \{required}（增加 \{required-hard} 个名额）",
+        )
+        evidence.push("需调整的配额 \{changes.join("、")}")
+        evidence.push("扩配额后的路径 \{quota_path.join(" → ")}")
+      }
+      None =>
+        evidence.push(
+          "最小 pods 配额未判定，超出模型的搜索或计数范围",
+        )
+    }
   }
   for entry in previous {
     let (uid, rs) = entry
@@ -441,7 +471,7 @@ fn rollout_finding(
         field(field(new_rs, "spec"), "replicas"),
       ),
     ] +
-    quota_refs +
+    quotas.map(fn(quota) { quota.evidence }) +
     additional_refs,
   })
 }
